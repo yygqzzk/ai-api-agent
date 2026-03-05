@@ -38,11 +38,15 @@ type AgentConfig struct {
 }
 
 type RAGConfig struct {
-	EmbeddingModel string
-	EmbeddingDim   int
-	RerankModel    string
-	TopK           int
-	TopN           int
+	EmbeddingAPIKey  string
+	EmbeddingBaseURL string
+	EmbeddingModel   string
+	EmbeddingDim     int
+	RerankAPIKey     string
+	RerankBaseURL    string
+	RerankModel      string
+	TopK             int
+	TopN             int
 }
 
 type MilvusConfig struct {
@@ -78,11 +82,15 @@ func Default() Config {
 			Temperature: 0.1,
 		},
 		RAG: RAGConfig{
-			EmbeddingModel: "bge-large-zh-v1.5",
-			EmbeddingDim:   1024,
-			RerankModel:    "bge-reranker-v2-m3",
-			TopK:           20,
-			TopN:           5,
+			EmbeddingAPIKey:  "",
+			EmbeddingBaseURL: "",
+			EmbeddingModel:   "bge-large-zh-v1.5",
+			EmbeddingDim:     1024,
+			RerankAPIKey:     "",
+			RerankBaseURL:    "",
+			RerankModel:      "qwen3-vl-rerank",
+			TopK:             20,
+			TopN:             5,
 		},
 		Milvus: MilvusConfig{
 			Mode:       "memory",
@@ -159,6 +167,31 @@ func (c *Config) ApplyEnv(lookup LookupEnvFunc) error {
 	}
 	if v, ok := lookup("REDIS_MODE"); ok && v != "" {
 		c.Redis.Mode = v
+	}
+	if v, ok := lookup("EMBEDDING_API_KEY"); ok && v != "" {
+		c.RAG.EmbeddingAPIKey = v
+	}
+	if v, ok := lookup("EMBEDDING_BASE_URL"); ok && v != "" {
+		c.RAG.EmbeddingBaseURL = v
+	}
+	if v, ok := lookup("EMBEDDING_MODEL"); ok && v != "" {
+		c.RAG.EmbeddingModel = v
+	}
+	if v, ok := lookup("EMBEDDING_DIM"); ok && v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid EMBEDDING_DIM: %w", err)
+		}
+		c.RAG.EmbeddingDim = n
+	}
+	if v, ok := lookup("RERANK_API_KEY"); ok && v != "" {
+		c.RAG.RerankAPIKey = v
+	}
+	if v, ok := lookup("RERANK_BASE_URL"); ok && v != "" {
+		c.RAG.RerankBaseURL = v
+	}
+	if v, ok := lookup("RERANK_MODEL"); ok && v != "" {
+		c.RAG.RerankModel = v
 	}
 	return nil
 }

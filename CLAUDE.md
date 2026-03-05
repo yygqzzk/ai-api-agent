@@ -40,8 +40,9 @@ HTTP POST /mcp (JSON-RPC 2.0)
 - **`internal/mcp/`** — Custom MCP server (no external MCP SDK). Single endpoint `POST /mcp` accepting JSON-RPC 2.0 where `method` = tool name, `params` = tool args.
 - **`internal/agent/`** — `AgentEngine` runs a multi-step tool-calling loop. `LLMClient` interface has two implementations: `RuleBasedLLMClient` (deterministic fallback) and `OpenAICompatibleLLMClient` (real LLM via `/v1/chat/completions`).
 - **`internal/tools/`** — 8 tools registered via `Registry`. `KnowledgeBase` is the central hub connecting ingestor, RAG engine, and cache.
-- **`internal/rag/`** — `Store` interface with `MemoryStore` (keyword matching) and `MilvusStore` (vector search via embedding + Milvus SDK). `Engine` wraps Store with chunking logic.
+- **`internal/rag/`** — `Store` interface with `MemoryStore` (keyword matching) and `MilvusStore` (vector search via embedding + Milvus SDK). `RerankStore` wraps any Store to add reranking capability. `Engine` wraps Store with chunking logic.
 - **`internal/embedding/`** — `Client` interface: `NoopClient` (zero vectors for memory mode) and `OpenAIClient` (calls `/v1/embeddings`).
+- **`internal/rerank/`** — `Client` interface: `NoopClient` (no reranking) and `DashScopeClient` (calls Alibaba Cloud rerank API).
 - **`internal/store/`** — `MilvusClient` interface: `InMemoryMilvusClient` (dev/test) and `SDKMilvusClient` (real Milvus). `RedisClient` interface: in-memory or go-redis.
 - **`internal/knowledge/`** — Swagger 2.0 parser → `Endpoint` structs → chunked into 4 types per endpoint (overview, request, response, dependency).
 - **`internal/observability/`** — Prometheus metrics and monitoring.
@@ -53,6 +54,14 @@ HTTP POST /mcp (JSON-RPC 2.0)
 Controlled by `MILVUS_MODE` env var (default `"memory"`):
 - **memory** — `MemoryStore` with keyword matching, no external deps needed. Used in tests and local dev.
 - **milvus** — `MilvusStore` with `OpenAIClient` embeddings + `SDKMilvusClient`. Requires running Milvus and an embedding API.
+
+### Rerank Integration
+
+The system supports optional reranking to improve search accuracy:
+- **Two-stage retrieval**: Initial recall (3x topK) → Rerank → Final results (topK)
+- **Automatic fallback**: If rerank API fails, returns original search results
+- **Configuration**: Set `RERANK_API_KEY` and `RERANK_MODEL` to enable
+- **Models supported**: `qwen3-vl-rerank` (multimodal), `qwen3-rerank`, `gte-rerank-v2`
 
 ## Code Conventions
 
@@ -76,6 +85,13 @@ Controlled by `MILVUS_MODE` env var (default `"memory"`):
 | `LLM_TIMEOUT_SECONDS` | — | LLM request timeout |
 | `LLM_MAX_RETRIES` | — | Max retry attempts for LLM calls |
 | `LLM_RETRY_BACKOFF_MS` | — | Retry backoff interval in ms |
+| `EMBEDDING_API_KEY` | (empty) | Embedding API key (falls back to LLM_API_KEY) |
+| `EMBEDDING_BASE_URL` | (empty) | Embedding API endpoint |
+| `EMBEDDING_MODEL` | `bge-large-zh-v1.5` | Embedding model name |
+| `EMBEDDING_DIM` | `1024` | Embedding vector dimension |
+| `RERANK_API_KEY` | (empty) | Rerank API key (falls back to EMBEDDING_API_KEY) |
+| `RERANK_BASE_URL` | (empty) | Rerank API endpoint |
+| `RERANK_MODEL` | `qwen3-vl-rerank` | Rerank model name |
 | `REDIS_ADDRESS` | `127.0.0.1:6379` | Redis server address |
 | `AUTH_TOKEN` | (empty) | Bearer token for `/mcp` endpoint |
 
@@ -94,4 +110,49 @@ curl -X POST http://localhost:8080/mcp \
 
 # Health check
 curl http://localhost:8080/healthz
+
+# Prometheus metrics
+curl http://localhost:8080/metrics
 ```
+
+## Resilience Features
+
+- **Circuit Breaker** — `internal/resilience/circuitbreaker.go` implements state machine (Closed → Open → HalfOpen) to prevent cascading failures when external services (LLM, Milvus, Redis) are down.
+- **Rate Limiting** — Token bucket algorithm in `internal/mcp/middleware.go` limits requests per IP/token to prevent abuse.
+- **Request ID Tracking** — Every request gets a unique ID for distributed tracing across middleware and tools.
+- **LLM Degradation** — When LLM API is unavailable or not configured, system automatically falls back to `RuleBasedLLMClient` for deterministic responses.
+
+## Response Format
+
+`query_api` returns both human-readable summary and structured trace:
+
+```json
+{
+  "summary": "找到登录接口 POST /user/login...",
+  "trace": [
+    {"step": 1, "tool": "search_api", "input": {...}, "output": {...}},
+    {"step": 2, "tool": "get_api_detail", "input": {...}, "output": {...}}
+  ]
+}
+```
+
+The `trace` array enables observability and debugging of agent decision flow.
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `connection refused` to Milvus/Redis | Run `make dev` to start infrastructure |
+| LLM timeout | Increase `LLM_TIMEOUT_SECONDS` or check API key |
+| Empty search results | Verify data ingestion with `make ingest` |
+| `401 Unauthorized` | Set `AUTH_TOKEN` environment variable |
+| High memory usage | Use `MILVUS_MODE=memory` for local dev |
+| Circuit breaker open | Check `/healthz` endpoint for service status |
+
+## Documentation
+
+- `docs/design.md` — Full architecture and design decisions
+- `docs/local-setup-guide.md` — Step-by-step setup instructions
+- `docs/resilience-implementation.md` — Circuit breaker and retry patterns
+- `QUICKSTART.md` — Quick reference card for common commands
+- `.env.example` — Environment variable templates

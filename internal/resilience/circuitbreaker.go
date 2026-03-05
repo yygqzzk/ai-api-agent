@@ -1,5 +1,50 @@
-// Package resilience 提供容错机制，包括熔断器、重试、降级等
-// 用于保护外部依赖（如 LLM API、向量检索服务等）
+// Package resilience 提供容错机制,包括熔断器、重试、降级等
+// 用于保护外部依赖(如 LLM API、向量检索服务等)
+//
+// # 设计理念
+//
+// 熔断器模式 (Circuit Breaker Pattern) 用于防止级联故障:
+// 1. 当外部服务频繁失败时,自动熔断,快速失败
+// 2. 避免浪费资源在注定失败的请求上
+// 3. 给外部服务恢复的时间
+// 4. 定期尝试恢复,检测服务是否已恢复
+//
+// # 状态机设计
+//
+// 熔断器有三种状态:
+//
+// 1. **Closed (关闭)** - 正常状态
+//   - 请求正常通过
+//   - 统计失败率
+//   - 失败率达到阈值 → Open
+//
+// 2. **Open (打开)** - 熔断状态
+//   - 直接拒绝请求,快速失败
+//   - 返回 ErrCircuitBreakerOpen
+//   - 超时后 → HalfOpen
+//
+// 3. **HalfOpen (半开)** - 探测状态
+//   - 允许少量请求通过 (maxRequests)
+//   - 如果请求成功 → Closed
+//   - 如果请求失败 → Open
+//
+// 状态转换图:
+//
+//	Closed --[失败率 >= ReadyToTrip]--> Open
+//	Open --[超时]--> HalfOpen
+//	HalfOpen --[成功]--> Closed
+//	HalfOpen --[失败]--> Open
+//
+// # 并发安全性
+//
+// - state: 使用 atomic.Value 存储,无锁读取
+// - counts/expiry/generation: 使用 mutex 保护
+// - beforeRequest/afterRequest: 串行执行,避免竞态条件
+//
+// # 参考文献
+//
+// Martin Fowler's Circuit Breaker: https://martinfowler.com/bliki/CircuitBreaker.html
+// Netflix Hystrix: https://github.com/Netflix/Hystrix/wiki/How-it-Works
 package resilience
 
 import (
@@ -69,6 +114,22 @@ func DefaultConfig(name string) Config {
 }
 
 // CircuitBreaker 熔断器
+//
+// 核心字段:
+// - state: 当前状态 (Closed/Open/HalfOpen),使用 atomic.Value 实现无锁读取
+// - generation: 熔断器代数,每次打开后递增,用于检测过期的请求
+// - counts: [requests, successes] 统计窗口内的请求数和成功数
+// - expiry: 统计窗口或熔断超时的过期时间
+//
+// 并发安全性:
+// - state 使用 atomic.Value,支持无锁并发读取
+// - counts/expiry/generation 使用 mutex 保护
+// - beforeRequest 和 afterRequest 必须成对调用,且使用相同的 generation
+//
+// 性能考虑:
+// - 读取状态无锁,适合高并发场景
+// - 统计计数使用 atomic 操作,减少锁竞争
+// - 状态转换使用 mutex 保护,确保一致性
 type CircuitBreaker struct {
 	name          string
 	maxRequests   uint32

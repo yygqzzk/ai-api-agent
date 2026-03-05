@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 )
 
@@ -61,6 +62,59 @@ func TestOpenAIClientEmbedError(t *testing.T) {
 	_, err := client.Embed(context.Background(), []string{"hello"})
 	if err == nil {
 		t.Fatalf("expected error for 401 response")
+	}
+}
+
+func TestOpenAIClientEmbedBatching(t *testing.T) {
+	callCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var req embeddingRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if len(req.Input) > 10 {
+			t.Fatalf("batch size should not exceed 10, got %d", len(req.Input))
+		}
+
+		resp := embeddingResponse{
+			Data: make([]struct {
+				Embedding []float32 `json:"embedding"`
+			}, len(req.Input)),
+		}
+		for i, input := range req.Input {
+			n, err := strconv.Atoi(input)
+			if err != nil {
+				t.Fatalf("invalid input: %s", input)
+			}
+			resp.Data[i].Embedding = []float32{float32(n)}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer ts.Close()
+
+	inputs := make([]string, 12)
+	for i := 0; i < len(inputs); i++ {
+		inputs[i] = strconv.Itoa(i + 1)
+	}
+
+	client := NewOpenAIClient("test-key", ts.URL, "text-embedding-3-small", 1)
+	vectors, err := client.Embed(context.Background(), inputs)
+	if err != nil {
+		t.Fatalf("Embed failed: %v", err)
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 batched calls, got %d", callCount)
+	}
+	if len(vectors) != len(inputs) {
+		t.Fatalf("expected %d vectors, got %d", len(inputs), len(vectors))
+	}
+	for i := range vectors {
+		if vectors[i][0] != float32(i+1) {
+			t.Fatalf("unexpected vector order at %d: %v", i, vectors[i])
+		}
 	}
 }
 

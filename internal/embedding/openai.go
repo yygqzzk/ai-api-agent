@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
+
+const defaultEmbeddingBatchSize = 10
 
 // OpenAIClient calls the OpenAI-compatible /v1/embeddings endpoint.
 type OpenAIClient struct {
@@ -28,6 +31,8 @@ func NewOpenAIClient(apiKey, baseURL, model string, dim int, opts ...OpenAIOptio
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
 	c := &OpenAIClient{
 		apiKey:  apiKey,
 		baseURL: baseURL,
@@ -53,6 +58,26 @@ type embeddingResponse struct {
 }
 
 func (c *OpenAIClient) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 0 {
+		return [][]float32{}, nil
+	}
+
+	vectors := make([][]float32, 0, len(texts))
+	for start := 0; start < len(texts); start += defaultEmbeddingBatchSize {
+		end := start + defaultEmbeddingBatchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+		batchVectors, err := c.embedBatch(ctx, texts[start:end])
+		if err != nil {
+			return nil, err
+		}
+		vectors = append(vectors, batchVectors...)
+	}
+	return vectors, nil
+}
+
+func (c *OpenAIClient) embedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	body, err := json.Marshal(embeddingRequest{Model: c.model, Input: texts})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -79,6 +104,9 @@ func (c *OpenAIClient) Embed(ctx context.Context, texts []string) ([][]float32, 
 	var result embeddingResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	if len(result.Data) != len(texts) {
+		return nil, fmt.Errorf("unexpected embedding result length: got %d, want %d", len(result.Data), len(texts))
 	}
 
 	vectors := make([][]float32, len(result.Data))

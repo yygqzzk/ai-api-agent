@@ -168,7 +168,8 @@ func (c *SDKMilvusClient) Query(ctx context.Context, collection string) ([]Vecto
 	}
 
 	outputFields := []string{"id", "service", "content"}
-	results, err := c.client.Query(ctx, collection, nil, "", outputFields)
+	// Newer Milvus versions require a positive limit when expression is empty.
+	results, err := c.client.Query(ctx, collection, nil, "", outputFields, client.WithLimit(1))
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
