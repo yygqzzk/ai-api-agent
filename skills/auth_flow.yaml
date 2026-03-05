@@ -1,0 +1,15 @@
+name: "登录鉴权流程"
+description: "查询完整的用户登录鉴权链路"
+tags: ["auth", "login", "token"]
+steps:
+  - tool: search_api
+    args:
+      query: "用户登录认证"
+      top_k: 5
+  - tool: analyze_dependencies
+    args:
+      endpoint: "{{matched_endpoint}}"
+  - tool: generate_example
+    args:
+      endpoint: "{{matched_endpoint}}"
+      language: "go"

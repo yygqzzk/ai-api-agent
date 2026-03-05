@@ -1,0 +1,33 @@
+server:
+  port: 8080
+  auth_token: "${AUTH_TOKEN}"
+
+llm:
+  provider: "openai"
+  api_key: "${LLM_API_KEY}"
+  model: "gpt-4o-mini"
+  base_url: ""
+  max_tokens: 4096
+  timeout_seconds: 30
+  max_retries: 2
+  retry_backoff_ms: 200
+
+agent:
+  max_steps: 10
+  temperature: 0.1
+
+rag:
+  embedding_model: "bge-large-zh-v1.5"
+  embedding_dim: 1024
+  rerank_model: "bge-reranker-v2-m3"
+  top_k: 20
+  top_n: 5
+
+milvus:
+  address: "localhost:19530"
+  collection: "api_documents"
+
+redis:
+  mode: "memory"
+  address: "localhost:6379"
+  db: 0

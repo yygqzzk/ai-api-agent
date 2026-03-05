@@ -1,0 +1,12 @@
+name: "CRUD 接口指南"
+description: "查询某个资源的增删改查全套接口"
+tags: ["crud", "resource", "pet"]
+steps:
+  - tool: search_api
+    args:
+      query: "{{resource_name}} 增删改查"
+      top_k: 10
+  - tool: generate_example
+    args:
+      endpoint: "{{each_matched}}"
+      language: "{{preferred_language}}"
