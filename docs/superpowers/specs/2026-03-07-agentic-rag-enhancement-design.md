@@ -24,6 +24,7 @@
 
 | 能力 | 当前状态 | 业界标准 | 影响 |
 |------|---------|---------|------|
+| **CI/CD 集成** | 无 | 企业标配 | 手动更新文档，效率低 |
 | **Query Rewriting** | 无 | LangChain/LlamaIndex 标配 | 检索准确率低 |
 | **Planning** | 无 | AutoGPT/BabyAGI 核心 | 无法处理复杂查询 |
 | **Self-Reflection** | 无 | Reflexion 论文核心 | 无法自我纠错 |
@@ -483,9 +484,388 @@ func (e *AdaptiveAgentEngine) runAmbiguous(ctx context.Context, query string) (s
 
 ---
 
-## 四、实施计划
+## 四、CI/CD 自动化集成（写入侧）
 
-### 4.1 Phase 1：核心模块实现（2 天）
+### 4.1 业务闭环架构
+
+```
+开发者提交代码
+    ↓
+GitHub Repository
+    ↓
+API 文档变更 (docs/api/*.json)
+    ↓
+GitHub Actions 触发
+    ↓
+POST /webhook/sync
+    ↓
+┌─────────────────────────────────────┐
+│   Webhook Handler                   │
+│   - 验证签名                         │
+│   - 解析 payload                    │
+│   - 触发 Ingest 服务                │
+└──────────┬──────────────────────────┘
+           ↓
+┌─────────────────────────────────────┐
+│   Ingest Service                    │
+│   - 解析 Swagger/OpenAPI            │
+│   - 提取 API 元数据                 │
+│   - 生成 Chunks                     │
+└──────────┬──────────────────────────┘
+           ↓
+┌─────────────────────────────────────┐
+│   Embedding Service                 │
+│   - 调用 Embedding API              │
+│   - 生成向量                        │
+└──────────┬──────────────────────────┘
+           ↓
+┌─────────────────────────────────────┐
+│   Milvus Vector DB                  │
+│   - 存储向量                        │
+│   - 建立索引                        │
+└─────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────┐
+│   Redis Cache                       │
+│   - 缓存 API 详情                   │
+│   - 缓存服务列表                    │
+└─────────────────────────────────────┘
+```
+
+### 4.2 Webhook 接口设计
+
+**端点**：`POST /webhook/sync`
+
+**认证**：
+- GitHub Webhook Secret 签名验证
+- 或 Bearer Token 认证
+
+**请求格式**：
+
+```json
+{
+  "event": "push",
+  "repository": "company/api-docs",
+  "branch": "main",
+  "files": [
+    {
+      "path": "docs/api/user-service.json",
+      "action": "added",
+      "content_url": "https://raw.githubusercontent.com/..."
+    },
+    {
+      "path": "docs/api/order-service.yaml",
+      "action": "modified",
+      "content_url": "https://raw.githubusercontent.com/..."
+    }
+  ]
+}
+```
+
+**响应格式**：
+
+```json
+{
+  "status": "success",
+  "message": "Synced 2 API documents",
+  "details": [
+    {
+      "file": "user-service.json",
+      "service": "user-service",
+      "endpoints": 15,
+      "chunks": 60,
+      "status": "success"
+    },
+    {
+      "file": "order-service.yaml",
+      "service": "order-service",
+      "endpoints": 23,
+      "chunks": 92,
+      "status": "success"
+    }
+  ]
+}
+```
+
+**接口实现**：
+
+```go
+// internal/webhook/handler.go
+
+type WebhookHandler struct {
+    ingestService *ingest.Service
+    secret        string // GitHub webhook secret
+}
+
+func (h *WebhookHandler) HandleSync(w http.ResponseWriter, r *http.Request) {
+    // 1. 验证签名
+    if err := h.verifySignature(r); err != nil {
+        http.Error(w, "Invalid signature", http.StatusUnauthorized)
+        return
+    }
+
+    // 2. 解析 payload
+    var payload WebhookPayload
+    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+        http.Error(w, "Invalid payload", http.StatusBadRequest)
+        return
+    }
+
+    // 3. 过滤 API 文档文件
+    apiFiles := h.filterAPIFiles(payload.Files)
+    if len(apiFiles) == 0 {
+        json.NewEncoder(w).Encode(map[string]string{
+            "status": "skipped",
+            "message": "No API documents changed",
+        })
+        return
+    }
+
+    // 4. 异步处理（避免 webhook 超时）
+    go h.processFiles(r.Context(), apiFiles)
+
+    // 5. 立即返回
+    json.NewEncoder(w).Encode(map[string]string{
+        "status": "accepted",
+        "message": fmt.Sprintf("Processing %d files", len(apiFiles)),
+    })
+}
+```
+
+### 4.3 Ingest 服务设计
+
+**职责**：
+1. 下载 API 文档文件
+2. 解析 Swagger/OpenAPI
+3. 生成 Chunks
+4. 调用 Embedding API
+5. 写入 Milvus 和 Redis
+
+**接口设计**：
+
+```go
+// internal/ingest/service.go
+
+type Service struct {
+    parser      *knowledge.SwaggerParser
+    ragEngine   *rag.Engine
+    cache       store.RedisClient
+    httpClient  *http.Client
+}
+
+// IngestFromURL 从 URL 导入 API 文档
+func (s *Service) IngestFromURL(ctx context.Context, url string, serviceName string) (*IngestResult, error) {
+    // 1. 下载文档
+    content, err := s.downloadFile(ctx, url)
+    if err != nil {
+        return nil, fmt.Errorf("download failed: %w", err)
+    }
+
+    // 2. 解析文档
+    endpoints, err := s.parser.Parse(content)
+    if err != nil {
+        return nil, fmt.Errorf("parse failed: %w", err)
+    }
+
+    // 3. 生成 chunks
+    chunks := s.generateChunks(serviceName, endpoints)
+
+    // 4. 写入向量数据库
+    if err := s.ragEngine.Index(ctx, chunks); err != nil {
+        return nil, fmt.Errorf("index failed: %w", err)
+    }
+
+    // 5. 更新缓存
+    if err := s.updateCache(ctx, serviceName, endpoints); err != nil {
+        // 缓存失败不影响主流程
+        log.Printf("cache update failed: %v", err)
+    }
+
+    return &IngestResult{
+        Service:   serviceName,
+        Endpoints: len(endpoints),
+        Chunks:    len(chunks),
+    }, nil
+}
+
+// IngestFromFile 从本地文件导入
+func (s *Service) IngestFromFile(ctx context.Context, filePath string, serviceName string) (*IngestResult, error) {
+    content, err := os.ReadFile(filePath)
+    if err != nil {
+        return nil, err
+    }
+    // 复用 URL 导入逻辑
+    return s.ingestContent(ctx, content, serviceName)
+}
+```
+
+### 4.4 GitHub Actions Workflow
+
+**文件位置**：`.github/workflows/sync-api-docs.yml`
+
+```yaml
+name: Sync API Docs to Knowledge Base
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'docs/api/**/*.json'
+      - 'docs/api/**/*.yaml'
+      - 'docs/api/**/*.yml'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2  # 获取最近两次提交，用于 diff
+
+      - name: Get changed files
+        id: changed-files
+        run: |
+          # 获取变更的 API 文档文件
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep '^docs/api/.*\.(json|yaml|yml)$' || true)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Sync to Knowledge Base
+        if: steps.changed-files.outputs.files != ''
+        env:
+          API_ASSISTANT_URL: ${{ secrets.API_ASSISTANT_URL }}
+          API_ASSISTANT_TOKEN: ${{ secrets.API_ASSISTANT_TOKEN }}
+        run: |
+          # 遍历每个变更的文件
+          echo "${{ steps.changed-files.outputs.files }}" | while read file; do
+            if [ -n "$file" ]; then
+              echo "Syncing $file..."
+
+              # 提取服务名（从文件名）
+              SERVICE_NAME=$(basename "$file" | sed 's/\.[^.]*$//')
+
+              # 调用 webhook
+              curl -X POST "$API_ASSISTANT_URL/webhook/sync" \
+                -H "Authorization: Bearer $API_ASSISTANT_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d @- <<EOF
+          {
+            "event": "push",
+            "repository": "${{ github.repository }}",
+            "branch": "${{ github.ref_name }}",
+            "commit": "${{ github.sha }}",
+            "files": [{
+              "path": "$file",
+              "action": "modified",
+              "service": "$SERVICE_NAME",
+              "content": $(cat "$file" | jq -Rs .)
+            }]
+          }
+          EOF
+
+              echo "✓ Synced $file"
+            fi
+          done
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Failed to sync API docs to knowledge base"
+```
+
+### 4.5 增量更新策略
+
+**问题**：每次都全量重新导入效率低
+
+**解决方案**：增量更新
+
+```go
+// internal/ingest/incremental.go
+
+type IncrementalUpdater struct {
+    service *Service
+    cache   store.RedisClient
+}
+
+// Update 增量更新
+func (u *IncrementalUpdater) Update(ctx context.Context, serviceName string, newEndpoints []knowledge.Endpoint) error {
+    // 1. 获取旧版本
+    oldEndpoints, err := u.getOldVersion(ctx, serviceName)
+    if err != nil {
+        // 如果没有旧版本，执行全量导入
+        return u.service.IngestFromEndpoints(ctx, serviceName, newEndpoints)
+    }
+
+    // 2. 计算 diff
+    added, modified, deleted := u.diff(oldEndpoints, newEndpoints)
+
+    // 3. 删除已删除的接口
+    for _, ep := range deleted {
+        if err := u.deleteEndpoint(ctx, serviceName, ep); err != nil {
+            return err
+        }
+    }
+
+    // 4. 更新修改的接口
+    for _, ep := range modified {
+        if err := u.updateEndpoint(ctx, serviceName, ep); err != nil {
+            return err
+        }
+    }
+
+    // 5. 添加新接口
+    for _, ep := range added {
+        if err := u.addEndpoint(ctx, serviceName, ep); err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+```
+
+---
+
+## 五、实施计划
+
+### 5.1 Phase 0：CI/CD 集成（1 天）
+
+**优先级：最高**（形成业务闭环的关键）
+
+**上午：Webhook + Ingest 服务**
+
+- [ ] 实现 `internal/webhook/handler.go`
+  - WebhookHandler 结构
+  - HandleSync 方法
+  - 签名验证逻辑
+  - Payload 解析
+- [ ] 实现 `internal/ingest/service.go`
+  - Service 结构
+  - IngestFromURL 方法
+  - IngestFromFile 方法
+  - 增量更新逻辑
+- [ ] 注册 webhook 路由到 `cmd/server/main.go`
+- [ ] 单元测试
+
+**下午：GitHub Actions + 端到端测试**
+
+- [ ] 编写 `.github/workflows/sync-api-docs.yml`
+- [ ] 配置 GitHub Secrets
+  - API_ASSISTANT_URL
+  - API_ASSISTANT_TOKEN
+- [ ] 测试完整流程：
+  - 提交 API 文档变更
+  - 触发 GitHub Actions
+  - Webhook 接收请求
+  - 文档解析入库
+  - 验证可查询
+- [ ] 编写 CI/CD 使用文档
+
+### 5.2 Phase 1：核心模块实现（2 天）
 
 **Day 1：Query Rewriter + Strategy Selector**
 
@@ -514,7 +894,7 @@ func (e *AdaptiveAgentEngine) runAmbiguous(ctx context.Context, query string) (s
 - [ ] 单元测试
 - [ ] 集成测试
 
-### 4.2 Phase 2：AdaptiveAgentEngine（1 天）
+### 5.3 Phase 2：AdaptiveAgentEngine（1 天）
 
 **Day 3：集成和优化**
 
@@ -527,35 +907,77 @@ func (e *AdaptiveAgentEngine) runAmbiguous(ctx context.Context, query string) (s
 - [ ] E2E 测试
 - [ ] 性能优化
 
-### 4.3 Phase 3：Enhanced Memory（可选，0.5 天）
+### 5.4 Phase 3：Enhanced Memory（可选，0.5 天）
 
 - [ ] 扩展 `internal/agent/memory.go`
 - [ ] 实现会话记忆
 - [ ] 实现用户偏好
 - [ ] 持久化到 Redis
 
-### 4.4 Phase 4：文档和演示（0.5 天）
+### 5.5 Phase 4：前端界面（1.5 天）
+
+**Day 4 上午：前端初始化**
+
+- [ ] 初始化 React + TypeScript 项目
+- [ ] 配置 Vite + Ant Design
+- [ ] 设计页面布局
+
+**Day 4 下午 + Day 5 上午：核心功能**
+
+- [ ] 实现搜索界面
+- [ ] 实现结果展示（含 trace 可视化）
+- [ ] 实现历史记录
+- [ ] 对接后端 API
+
+**Day 5 下午：部署**
+
+- [ ] 构建生产版本
+- [ ] 部署到静态服务器
+- [ ] 配置 Nginx 反向代理
+
+### 5.6 Phase 5：文档和演示（0.5 天）
 
 - [ ] 更新 README
 - [ ] 编写使用文档
 - [ ] 准备演示案例
 - [ ] 录制演示视频
 
+### 5.7 总时间估算
+
+| Phase | 内容 | 时间 | 优先级 |
+|-------|------|------|--------|
+| Phase 0 | CI/CD 集成 | 1 天 | 最高 ⭐⭐⭐ |
+| Phase 1 | Agent 核心模块 | 2 天 | 高 ⭐⭐ |
+| Phase 2 | AdaptiveEngine | 1 天 | 高 ⭐⭐ |
+| Phase 3 | Enhanced Memory | 0.5 天 | 中 ⭐ |
+| Phase 4 | 前端界面 | 1.5 天 | 高 ⭐⭐ |
+| Phase 5 | 文档演示 | 0.5 天 | 中 ⭐ |
+| **总计** | | **6.5 天** | |
+
+**建议执行顺序**：
+1. Phase 0（CI/CD）→ 形成写入侧闭环
+2. Phase 1 + 2（Agent 优化）→ 提升查询侧能力
+3. Phase 4（前端）→ 提供用户界面
+4. Phase 3（Memory）→ 可选增强
+5. Phase 5（文档）→ 最后完善
+
 ---
 
-## 五、技术亮点总结
+## 六、对比分析
 
 ### 5.1 面试话术
 
 **问题 1：你的项目有什么技术亮点？**
 
-> "我实现了一个 Adaptive Agentic RAG 系统，核心亮点有三个：
+> "我实现了一个 Adaptive Agentic RAG 系统，核心亮点有四个：
 >
-> 1. **自适应执行策略**：系统会自动分析查询类型，为简单查询、复杂查询、模糊查询选择不同的执行策略，而不是一刀切。
+> 1. **CI/CD 自动化闭环**：通过 GitHub Actions 监听 API 文档变更，自动触发 webhook 解析入库到向量数据库，实现了从文档更新到知识库同步的全自动化流程，这是企业级 RAG 系统的标配。
 >
-> 2. **查询改写和任务规划**：对于模糊查询，系统会先改写成更精确的形式；对于复杂查询，会先分解成子任务再执行，这显著提升了检索准确率。
+> 2. **自适应执行策略**：系统会自动分析查询类型，为简单查询、复杂查询、模糊查询选择不同的执行策略，而不是一刀切。
 >
-> 3. **自我反思机制**：Agent 会评估自己的输出质量，如果质量不达标会自动重试，这是参考了 Reflexion 论文的思想。"
+> 3. **查询改写和任务规划**：对于模糊查询，系统会先改写成更精确的形式；对于复杂查询，会先分解成子任务再执行，这显著提升了检索准确率。
+>
+> 4. **自我反思机制**：Agent 会评估自己的输出质量，如果质量不达标会自动重试，这是参考了 Reflexion 论文的思想。"
 
 **问题 2：你是如何优化 RAG 检索准确率的？**
 
@@ -577,20 +999,39 @@ func (e *AdaptiveAgentEngine) runAmbiguous(ctx context.Context, query string) (s
 >
 > 3. **自我纠错**：Agent 会评估自己的输出，发现问题会自动重试，而不是直接返回错误结果。"
 
+**问题 4：你是如何实现业务闭环的？**
+
+> "我的系统实现了完整的写入-查询闭环：
+>
+> 1. **写入侧**：开发者提交 API 文档到 Git 仓库，GitHub Actions 自动触发，通过 webhook 调用后端服务，解析 Swagger 文档并写入 Milvus 向量数据库。整个过程无需人工介入。
+>
+> 2. **查询侧**：用户通过 Web 界面或 API 用自然语言查询，Agent 自动进行查询改写、向量检索、结果汇总，返回结构化的 API 信息和代码示例。
+>
+> 3. **增量更新**：系统支持增量更新，只同步变更的接口，避免全量重新导入，提升效率。
+>
+> 这个闭环解决了企业内部 API 文档分散、更新不及时、查询效率低的痛点。"
+
 ### 5.2 技术深度体现
 
 | 技术点 | 实现方式 | 对应论文/框架 |
 |-------|---------|--------------|
+| CI/CD Integration | GitHub Actions + Webhook + 增量更新 | 企业标准实践 |
 | Query Rewriting | LLM 改写 + 多策略 | LangChain Query Transformation |
 | Planning | LLM 生成执行计划 + 依赖分析 | AutoGPT / BabyAGI |
 | Self-Reflection | LLM 质量评估 + 重试机制 | Reflexion (ICLR 2023) |
 | Adaptive Strategy | 查询分类 + 策略路由 | Adaptive RAG (arXiv 2024) |
 | Multi-Step Reasoning | ReAct 循环 + 工具编排 | ReAct (ICLR 2023) |
+| Vector Retrieval | Embedding + Milvus + Rerank | 业界标准 RAG Pipeline |
 
 ### 5.3 工程能力体现
 
-1. **模块化设计**：每个模块都是独立的接口，易于测试和替换
-2. **并发优化**：工具调用并发执行，显著降低延迟
+1. **CI/CD 自动化**：GitHub Actions + Webhook + 增量更新，实现文档到知识库的全自动同步
+2. **模块化设计**：每个模块都是独立的接口，易于测试和替换
+3. **并发优化**：工具调用并发执行，显著降低延迟
+4. **可观测性**：完整的 Metrics + Trace，便于调试和优化
+5. **弹性设计**：Circuit Breaker + Retry，保证系统稳定性
+6. **双模式存储**：Memory/Milvus 切换，便于开发和部署
+7. **业务闭环**：从文档写入到智能查询的完整链路
 3. **可观测性**：完整的 Metrics + Trace，便于调试和优化
 4. **弹性设计**：Circuit Breaker + Retry，保证系统稳定性
 5. **双模式存储**：Memory/Milvus 切换，便于开发和部署
@@ -603,6 +1044,7 @@ func (e *AdaptiveAgentEngine) runAmbiguous(ctx context.Context, query string) (s
 
 | 维度 | 优化前 | 优化后 | 提升 |
 |-----|-------|-------|------|
+| **业务闭环** | ❌ 手动导入 | ✅ CI/CD 自动化 | 效率提升 10x |
 | **查询准确率** | 60% | 85% | +25% |
 | **复杂查询支持** | ❌ | ✅ | 新增能力 |
 | **自我纠错** | ❌ | ✅ | 新增能力 |
@@ -625,17 +1067,25 @@ func (e *AdaptiveAgentEngine) runAmbiguous(ctx context.Context, query string) (s
 现在有三个选择：
 
 **选项 A：直接开始实施**
-- 按照 Phase 1 开始编写代码
-- 从 Query Rewriter 开始
+- 按照 Phase 0（CI/CD）开始编写代码
+- 优先形成业务闭环
 
 **选项 B：先实现一个模块作为 Demo**
-- 选择最有代表性的模块（建议 Query Rewriter）
+- 选择最有代表性的模块（建议 CI/CD 或 Query Rewriter）
 - 快速实现并演示效果
 - 验证设计可行性
 
 **选项 C：调整设计方案**
 - 你对设计有疑问或建议
 - 需要调整优先级或技术选型
+
+**推荐路径**：
+1. Phase 0（CI/CD）→ 1 天，形成写入侧闭环
+2. Phase 1-2（Agent 优化）→ 3 天，提升查询侧能力
+3. Phase 4（前端）→ 1.5 天，提供用户界面
+4. Phase 5（文档）→ 0.5 天，完善演示
+
+总计 6 天完成核心功能，达到面试级别。
 
 ---
 
