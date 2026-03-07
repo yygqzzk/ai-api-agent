@@ -18,6 +18,10 @@
 - 完整的可观测性（Metrics + Trace）
 - 代码质量高，注释详细
 
+⚠️ **需要简化的部分**：
+- **双模式存储过于复杂**：Memory/Redis、Memory/Milvus 双模式增加了代码复杂度，对于面试项目来说不必要
+- **建议**：直接使用 Redis + Milvus，通过 Docker Compose 管理依赖
+
 ### 1.2 与业界先进系统的差距
 
 ❌ **缺失的核心能力**：
@@ -345,7 +349,49 @@ type EnhancedMemory interface {
 
 ---
 
-## 三、AdaptiveAgentEngine 设计
+## 三、架构简化决策
+
+### 3.1 移除双模式存储
+
+**决策**：删除 Memory/Redis、Memory/Milvus 双模式存储，直接使用 Redis + Milvus。
+
+**理由**：
+
+1. **降低复杂度**
+   - 双模式需要维护两套实现（MemoryStore + MilvusStore）
+   - 增加了代码量和测试负担
+   - 对于面试项目来说过度设计
+
+2. **提升真实性**
+   - Memory 模式和真实环境有差异
+   - 测试结果不能完全反映生产表现
+   - 面试时难以解释为什么需要两套
+
+3. **Docker Compose 已足够**
+   - `make dev` 一键启动所有依赖
+   - 本地开发体验良好
+   - 不需要 Memory 模式来简化开发
+
+4. **面试友好**
+   - 架构更清晰，易于讲解
+   - 不需要解释模式切换逻辑
+   - 体现真实的生产环境设计
+
+**删除的代码**：
+- `internal/store/memory_milvus.go`
+- `internal/store/memory_redis.go`
+- `internal/rag/memory_store.go`
+- `MILVUS_MODE` 和 `REDIS_MODE` 环境变量
+- 模式切换逻辑
+
+**保留的代码**：
+- `internal/store/milvus_client.go`（真实 Milvus SDK）
+- `internal/store/redis_client.go`（真实 Redis 客户端）
+- `internal/rag/milvus_store.go`（向量检索）
+
+---
+
+## 四、AdaptiveAgentEngine 设计
 
 ### 3.1 核心接口
 
@@ -832,11 +878,26 @@ func (u *IncrementalUpdater) Update(ctx context.Context, serviceName string, new
 
 ## 五、实施计划
 
-### 5.1 Phase 0：CI/CD 集成（1 天）
+### 5.1 Phase 0：CI/CD 集成 + 架构简化（1 天）
 
-**优先级：最高**（形成业务闭环的关键）
+**优先级：最高**（形成业务闭环的关键 + 简化架构）
 
-**上午：Webhook + Ingest 服务**
+**上午：架构简化**
+
+- [ ] 删除双模式存储代码
+  - 删除 `internal/store/memory_milvus.go`
+  - 删除 `internal/store/memory_redis.go`
+  - 删除 `internal/rag/memory_store.go`
+  - 简化 `cmd/server/main.go` 中的模式切换逻辑
+- [ ] 更新配置
+  - 删除 `MILVUS_MODE` 环境变量
+  - 删除 `REDIS_MODE` 环境变量
+  - 简化 `config/config.yaml`
+- [ ] 更新文档
+  - 更新 README 和 CLAUDE.md
+  - 强调使用 `make dev` 启动依赖
+
+**下午：Webhook + Ingest 服务**
 
 - [ ] 实现 `internal/webhook/handler.go`
   - WebhookHandler 结构
@@ -851,18 +912,11 @@ func (u *IncrementalUpdater) Update(ctx context.Context, serviceName string, new
 - [ ] 注册 webhook 路由到 `cmd/server/main.go`
 - [ ] 单元测试
 
-**下午：GitHub Actions + 端到端测试**
+**晚上：GitHub Actions + 端到端测试**
 
 - [ ] 编写 `.github/workflows/sync-api-docs.yml`
 - [ ] 配置 GitHub Secrets
-  - API_ASSISTANT_URL
-  - API_ASSISTANT_TOKEN
-- [ ] 测试完整流程：
-  - 提交 API 文档变更
-  - 触发 GitHub Actions
-  - Webhook 接收请求
-  - 文档解析入库
-  - 验证可查询
+- [ ] 测试完整流程
 - [ ] 编写 CI/CD 使用文档
 
 ### 5.2 Phase 1：核心模块实现（2 天）
@@ -1030,7 +1084,7 @@ func (u *IncrementalUpdater) Update(ctx context.Context, serviceName string, new
 3. **并发优化**：工具调用并发执行，显著降低延迟
 4. **可观测性**：完整的 Metrics + Trace，便于调试和优化
 5. **弹性设计**：Circuit Breaker + Retry，保证系统稳定性
-6. **双模式存储**：Memory/Milvus 切换，便于开发和部署
+6. **容器化部署**：Docker Compose 一键启动所有依赖（Redis + Milvus + etcd + MinIO）
 7. **业务闭环**：从文档写入到智能查询的完整链路
 3. **可观测性**：完整的 Metrics + Trace，便于调试和优化
 4. **弹性设计**：Circuit Breaker + Retry，保证系统稳定性
