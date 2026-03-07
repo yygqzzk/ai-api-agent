@@ -121,9 +121,11 @@ func (l *FixedWindowLimiter) AllowN(key string, n int) bool {
 		return false
 	}
 	now := time.Now()
+	// time.Truncate 会把时间截到窗口边界，例如 12:01:35 在 1m 窗口下会得到 12:01:00。
 	windowStart := now.Truncate(l.window)
 
 	l.mu.Lock()
+	// sync.Mutex 用来保护 map 和计数器；Go 的 map 不能在并发读写时裸用。
 	defer l.mu.Unlock()
 
 	current, ok := l.windows[key]
@@ -151,6 +153,7 @@ func (l *FixedWindowLimiter) Wait(key string) time.Duration {
 	defer l.mu.Unlock()
 
 	if current, ok := l.windows[key]; ok {
+		// time.Until(t) 等价于 t.Sub(time.Now())，但表达“距离目标时刻还有多久”更直观。
 		return time.Until(current.windowStart.Add(l.window))
 	}
 	return 0
@@ -216,6 +219,7 @@ func (l *SlidingWindowLimiter) Allow(key string) bool {
 
 func (l *SlidingWindowLimiter) AllowN(key string, n int) bool {
 	now := time.Now()
+	// time.Add 接受负的 Duration，因此常用 Add(-window) 来计算“窗口起点”。
 	cutoff := now.Add(-l.window)
 
 	l.mu.Lock()
@@ -224,8 +228,10 @@ func (l *SlidingWindowLimiter) AllowN(key string, n int) bool {
 	bucket := l.buckets[key]
 
 	// 清理过期的请求
+	// make([]T, 0, n) 会预留容量，适合这里边过滤边 append，减少切片扩容。
 	valid := make([]time.Time, 0, len(bucket))
 	for _, t := range bucket {
+		// time.After 用来判断 t 是否晚于 cutoff，也就是是否仍在滑动窗口内。
 		if t.After(cutoff) {
 			valid = append(valid, t)
 		}
@@ -366,12 +372,14 @@ func (l *TokenBucketLimiter) AllowN(key string, n int) bool {
 
 func (l *TokenBucketLimiter) refill() {
 	now := time.Now()
+	// IsZero 用来判断 time.Time 是否还是零值；第一次 refill 时还没有上次补充时间。
 	if l.lastRefill.IsZero() {
 		l.lastRefill = now
 		return
 	}
 
 	elapsed := now.Sub(l.lastRefill)
+	// Duration 支持整数除法，这里直接算出跨过了多少个完整补充周期。
 	intervals := elapsed / l.interval
 	if intervals <= 0 {
 		return
@@ -384,6 +392,7 @@ func (l *TokenBucketLimiter) refill() {
 		l.tokens = l.maxTokens
 	}
 
+	// Add 会返回新的 time.Time，不会原地修改；这里把 lastRefill 推进到最新已结算的周期边界。
 	l.lastRefill = l.lastRefill.Add(intervals * l.interval)
 }
 

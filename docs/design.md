@@ -392,8 +392,8 @@ Swagger/OpenAPI JSON/YAML 文件
 └────────────────┘
 
 触发方式:
-  • CLI: ./api-assistant ingest --file petstore.json
   • MCP Tool: parse_swagger (Claude Code 中触发)
+  • HTTP Webhook: POST /webhook/sync
 ```
 
 #### 3.4.2 Skills 技能模板系统
@@ -655,10 +655,7 @@ dev:           # 启动基础设施 (Milvus + Redis)
 	cd deploy && docker-compose up -d milvus-standalone etcd minio redis
 
 run:           # 启动 MCP Server
-	go run cmd/server/main.go
-
-ingest:        # 导入 Petstore 测试数据
-	go run cmd/server/main.go ingest --file testdata/petstore.json
+	go run cmd/server/main.go run
 
 deploy:        # 全部服务一键部署
 	cd deploy && docker-compose up -d

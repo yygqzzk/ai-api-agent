@@ -49,6 +49,8 @@ type swaggerParameter struct {
 }
 
 func ParseSwaggerFile(path string, service string) ([]Endpoint, error) {
+	// os.ReadFile 会一次性把整个文件内容读入内存。
+	// Swagger 文件通常不大，这种写法比手动 open/read/close 更直接。
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read swagger file: %w", err)

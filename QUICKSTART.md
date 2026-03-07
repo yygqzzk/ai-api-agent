@@ -9,8 +9,8 @@ export AUTH_TOKEN="demo-token"
 # 2. 启动服务
 go run cmd/server/main.go run
 
-# 3. 导入数据
-go run cmd/server/main.go ingest --file testdata/petstore.json --service petstore
+# 3. 服务启动时会自动加载默认示例数据
+#    如果仓库中存在 testdata/petstore.json，无需手动导入
 
 # 4. 测试查询
 curl -X POST http://localhost:8080/mcp \
@@ -28,8 +28,8 @@ curl -X POST http://localhost:8080/mcp \
 | `AUTH_TOKEN` | (空) | **必填** - Bearer Token |
 | `LLM_API_KEY` | (空) | LLM API 密钥 |
 | `LLM_MODEL` | `gpt-4o-mini` | 模型名称 |
-| `MILVUS_MODE` | `memory` | `memory` 或 `milvus` |
-| `REDIS_MODE` | `memory` | `memory` 或 `redis` |
+| `MILVUS_ADDRESS` | `localhost:19530` | Milvus 服务地址 |
+| `REDIS_ADDRESS` | `localhost:6379` | Redis 服务地址 |
 
 ---
 
@@ -39,8 +39,11 @@ curl -X POST http://localhost:8080/mcp \
 # 启动服务
 go run cmd/server/main.go run
 
-# 导入数据
-go run cmd/server/main.go ingest --file <file> --service <name>
+# 运行中导入本地 Swagger
+curl -X POST http://localhost:8080/mcp \
+  -H 'Authorization: Bearer demo-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"parse_swagger","params":{"file_path":"<file>","service":"<name>"}}'
 
 # 运行测试
 go test ./...
@@ -110,7 +113,7 @@ curl -X POST http://localhost:8080/mcp \
 | 连接被拒绝 | 检查 Docker 服务：`make dev` |
 | LLM 超时 | 增加超时：`export LLM_TIMEOUT_SECONDS=60` |
 | 查询无结果 | 确认已导入数据 |
-| 内存占用高 | 使用内存模式：`export MILVUS_MODE=memory` |
+| Milvus/Redis 连接失败 | 检查地址配置并先执行 `make dev` |
 
 ---
 
@@ -119,4 +122,3 @@ curl -X POST http://localhost:8080/mcp \
 - [完整配置指南](docs/local-setup-guide.md)
 - [设计文档](docs/design.md)
 - [容错机制](docs/resilience-implementation.md)
-- [设置完成总结](docs/SETUP-COMPLETE.md)

@@ -6,23 +6,26 @@ import (
 
 // Metrics holds all Prometheus collectors. All methods are nil-safe.
 type Metrics struct {
-	requestsTotal    *prometheus.CounterVec
-	requestDuration  *prometheus.HistogramVec
-	toolCallsTotal   *prometheus.CounterVec
-	toolCallDuration *prometheus.HistogramVec
+	requestsTotal      *prometheus.CounterVec
+	requestDuration    *prometheus.HistogramVec
+	toolCallsTotal     *prometheus.CounterVec
+	toolCallDuration   *prometheus.HistogramVec
 	llmRequestsTotal   *prometheus.CounterVec
 	llmRequestDuration *prometheus.HistogramVec
-	llmTokensTotal   *prometheus.CounterVec
-	ragSearchesTotal *prometheus.CounterVec
+	llmTokensTotal     *prometheus.CounterVec
+	ragSearchesTotal   *prometheus.CounterVec
 }
 
 func NewMetrics(reg prometheus.Registerer) *Metrics {
+	// prometheus.Registerer 是 Prometheus Go 客户端定义的注册接口；用接口而不是具体类型，便于测试替换。
 	m := &Metrics{
+		// NewCounterVec 用于创建“按标签分组”的累加计数器，适合统计请求总量这类只增不减的数据。
 		requestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "mcp_requests_total",
 			Help: "Total MCP JSON-RPC requests",
 		}, []string{"method", "status"}),
 
+		// NewHistogramVec 适合记录延迟分布；prometheus.DefBuckets 是官方给出的通用耗时桶配置。
 		requestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "mcp_request_duration_seconds",
 			Help:    "MCP request latency distribution",
@@ -62,6 +65,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		}, []string{"mode"}),
 	}
 
+	// MustRegister 会在注册冲突时直接 panic，因此适合应用启动期尽早暴露配置错误。
 	reg.MustRegister(
 		m.requestsTotal, m.requestDuration,
 		m.toolCallsTotal, m.toolCallDuration,

@@ -104,6 +104,7 @@ func (s *Service) IngestFromURL(ctx context.Context, rawURL string, service stri
 }
 
 func (s *Service) IngestFromFile(ctx context.Context, filePath string, service string) (Result, error) {
+	// os.ReadFile 适合这种“读完整配置/文档文件再处理”的场景。
 	body, err := os.ReadFile(filePath)
 	if err != nil {
 		return Result{}, fmt.Errorf("read file: %w", err)

@@ -45,6 +45,7 @@ func NewOpenAICompatibleLLMClient(cfg OpenAICompatibleLLMConfig) *OpenAICompatib
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
+		// http.DefaultClient 是 net/http 提供的默认可用客户端；这里做兜底，外部仍可注入自定义超时或测试 client。
 		httpClient = http.DefaultClient
 	}
 	retryBackoff := cfg.RetryBackoff
@@ -77,6 +78,7 @@ func (c *OpenAICompatibleLLMClient) Next(ctx context.Context, messages []Message
 		Temperature: c.temperature,
 	}
 
+	// json.Marshal 会把 Go struct 按 json tag 编码成请求体字节。
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return LLMReply{}, fmt.Errorf("marshal chat completion request: %w", err)
@@ -97,6 +99,7 @@ func (c *OpenAICompatibleLLMClient) Next(ctx context.Context, messages []Message
 		if delay <= 0 {
 			delay = c.retryBackoff * time.Duration(attempt+1)
 		}
+		// time.NewTimer + select 比 time.Sleep 更适合重试等待，因为它还能同时监听 ctx.Done() 提前取消。
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -109,6 +112,7 @@ func (c *OpenAICompatibleLLMClient) Next(ctx context.Context, messages []Message
 }
 
 func (c *OpenAICompatibleLLMClient) doRequest(ctx context.Context, payload []byte) (LLMReply, time.Duration, bool, error) {
+	// NewRequestWithContext 会把取消/超时信号绑定到 HTTP 请求；bytes.NewReader 则把 []byte 包装成 io.Reader 作为请求体。
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return LLMReply{}, 0, false, fmt.Errorf("create chat completion request: %w", err)
@@ -127,6 +131,7 @@ func (c *OpenAICompatibleLLMClient) doRequest(ctx context.Context, payload []byt
 	}
 	defer resp.Body.Close()
 
+	// io.ReadAll 适合这种需要先完整拿到响应体，再统一判断状态码和反序列化的场景。
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return LLMReply{}, 0, false, fmt.Errorf("read chat completion response: %w", err)
@@ -138,6 +143,7 @@ func (c *OpenAICompatibleLLMClient) doRequest(ctx context.Context, payload []byt
 	}
 
 	var parsed openAIChatResponse
+	// json.Unmarshal 会把 JSON 字节解码回 struct，目标字段通过 json tag 对齐。
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return LLMReply{}, 0, false, fmt.Errorf("decode chat completion response: %w", err)
 	}
@@ -164,6 +170,7 @@ func parseRetryAfter(v string) time.Duration {
 	if raw == "" {
 		return 0
 	}
+	// strconv.Atoi 用于把 Retry-After 头里的秒数字符串转成 int。
 	sec, err := strconv.Atoi(raw)
 	if err != nil || sec < 0 {
 		return 0

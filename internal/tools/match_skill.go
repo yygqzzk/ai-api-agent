@@ -51,6 +51,8 @@ func (t *MatchSkillTool) Execute(ctx context.Context, args json.RawMessage) (any
 }
 
 func loadSkills(dir string) ([]SkillTemplate, error) {
+	// os.ReadDir 会返回目录项列表。
+	// 相比旧的 ioutil.ReadDir，它直接返回 []os.DirEntry，拿文件名和 IsDir 更方便。
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read skills dir: %w", err)
@@ -65,6 +67,7 @@ func loadSkills(dir string) ([]SkillTemplate, error) {
 			continue
 		}
 		path := filepath.Join(dir, name)
+		// 这里再用 os.ReadFile 把单个技能文件读成 []byte，后面会转成字符串做简单解析。
 		body, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read skill file %s: %w", path, err)

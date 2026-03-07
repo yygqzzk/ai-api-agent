@@ -24,8 +24,8 @@ export AUTH_TOKEN="demo-token"
 # 2. 启动服务（使用内存模式）
 go run cmd/server/main.go run
 
-# 3. 导入测试数据
-go run cmd/server/main.go ingest --file testdata/petstore.json --service petstore
+# 3. 服务启动时会自动加载默认测试数据
+#    如果仓库中存在 testdata/petstore.json，无需手动导入
 
 # 4. 测试查询
 curl -X POST http://localhost:8080/mcp \
@@ -57,8 +57,8 @@ export REDIS_MODE="redis"
 # 3. 启动服务
 go run cmd/server/main.go run
 
-# 4. 导入测试数据
-go run cmd/server/main.go ingest --file testdata/petstore.json --service petstore
+# 4. 服务启动时会自动加载默认测试数据
+#    如果仓库中存在 testdata/petstore.json，无需手动导入
 
 # 5. 测试查询
 curl -X POST http://localhost:8080/mcp \
@@ -312,12 +312,17 @@ export LLM_BASE_URL="http://your-proxy:8080"
 
 ### Q3: 查询结果为空
 
-**原因**：未导入数据
+**原因**：默认示例数据未加载，或尚未在运行中导入自定义文档
 
 **解决**：
 ```bash
-# 导入测试数据
-go run cmd/server/main.go ingest --file testdata/petstore.json --service petstore
+# 确认服务启动日志中包含 default swagger loaded
+
+# 或在运行中的服务里导入测试数据
+curl -X POST http://localhost:8080/mcp \
+  -H 'Authorization: Bearer demo-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"parse_swagger","params":{"file_path":"testdata/petstore.json","service":"petstore"}}'
 
 # 验证数据
 curl -X POST http://localhost:8080/mcp \

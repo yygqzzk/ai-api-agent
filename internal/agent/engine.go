@@ -82,16 +82,16 @@ type ToolDispatcher interface {
 // - 单工具调用: 直接执行,避免 goroutine 开销
 // - 多工具调用: 并发执行,利用 I/O 等待时间
 type AgentEngine struct {
-	llmClient     LLMClient                  // LLM 客户端 (Strategy Pattern)
-	dispatcher    ToolDispatcher             // 工具分发器
-	dispatchFn    ToolHandler                // 实际的工具调用函数 (可能被中间件包装)
-	memory        Memory                     // 对话历史管理
-	maxSteps      int                        // 最大执行步数 (防止无限循环)
-	systemPrompt  string                     // 系统提示词
-	toolCatalog   []ToolDefinition           // 工具目录 (传递给 LLM)
-	middlewares   []Middleware               // 工具调用中间件链
-	extraHandlers []Handler                  // 额外的事件处理器
-	metrics       *observability.Metrics     // Prometheus 指标收集器
+	llmClient     LLMClient              // LLM 客户端 (Strategy Pattern)
+	dispatcher    ToolDispatcher         // 工具分发器
+	dispatchFn    ToolHandler            // 实际的工具调用函数 (可能被中间件包装)
+	memory        Memory                 // 对话历史管理
+	maxSteps      int                    // 最大执行步数 (防止无限循环)
+	systemPrompt  string                 // 系统提示词
+	toolCatalog   []ToolDefinition       // 工具目录 (传递给 LLM)
+	middlewares   []Middleware           // 工具调用中间件链
+	extraHandlers []Handler              // 额外的事件处理器
+	metrics       *observability.Metrics // Prometheus 指标收集器
 }
 
 // ToolTrace 工具调用追踪信息
@@ -228,8 +228,10 @@ func (e *AgentEngine) RunWithTrace(ctx context.Context, userQuery string) (strin
 // 并发安全性:
 // 返回的 channel 在 goroutine 中异步填充,调用者可以安全地在主 goroutine 中读取
 func (e *AgentEngine) RunStream(ctx context.Context, userQuery string) <-chan AgentEvent {
+	// make(chan T, 32) 创建带缓冲 channel，生产方短时间内可先写入 32 个事件而不必立刻阻塞。
 	ch := make(chan AgentEvent, 32)
 	go func() {
+		// defer close(ch) 保证无论 runCore 如何结束，消费方都能感知事件流结束。
 		defer close(ch)
 		sh := newStreamHandler(ctx, ch)
 		var h Handler = sh
@@ -244,14 +246,14 @@ func (e *AgentEngine) RunStream(ctx context.Context, userQuery string) <-chan Ag
 // runCore 是唯一的 Agent 执行循环实现
 //
 // ReAct 循环流程:
-// 1. 初始化 Memory,添加 system 和 user 消息
-// 2. 循环 (最多 maxSteps 步):
-//    a. 调用 LLM,获取推理结果
-//    b. 如果 LLM 返回文本 (无工具调用),结束循环
-//    c. 如果 LLM 返回工具调用,执行工具
-//    d. 将工具结果添加到 Memory
-//    e. 继续下一步
-// 3. 如果达到 maxSteps,返回超时消息
+//  1. 初始化 Memory,添加 system 和 user 消息
+//  2. 循环 (最多 maxSteps 步):
+//     a. 调用 LLM,获取推理结果
+//     b. 如果 LLM 返回文本 (无工具调用),结束循环
+//     c. 如果 LLM 返回工具调用,执行工具
+//     d. 将工具结果添加到 Memory
+//     e. 继续下一步
+//  3. 如果达到 maxSteps,返回超时消息
 //
 // 错误处理:
 // - LLM 调用失败: 立即返回错误
@@ -277,6 +279,7 @@ func (e *AgentEngine) runCore(ctx context.Context, userQuery string, h Handler) 
 		h.OnLLMStart(ctx, step)
 		llmStart := time.Now()
 		reply, err := e.llmClient.Next(ctx, mem.Messages(), e.toolCatalog)
+		// time.Since(start) 是 time.Now().Sub(start) 的便捷写法，常用于统计耗时。
 		llmDuration := time.Since(llmStart)
 
 		if e.recordMetrics() {
@@ -291,6 +294,7 @@ func (e *AgentEngine) runCore(ctx context.Context, userQuery string, h Handler) 
 		}
 
 		if err != nil {
+			// fmt.Errorf(... %w ...) 会把原始错误包进错误链，后续还能用 errors.Is / errors.As 继续判断。
 			wrapped := fmt.Errorf("llm next failed: %w", err)
 			h.OnError(ctx, step, wrapped)
 			return "", wrapped
@@ -385,6 +389,7 @@ func (e *AgentEngine) dispatchTools(ctx context.Context, calls []ToolCall, step 
 		return results
 	}
 
+	// errgroup.WithContext 来自 golang.org/x/sync/errgroup，常用于把一组 goroutine 作为一个并发任务统一等待和取消。
 	g, gctx := errgroup.WithContext(ctx)
 	for i, tc := range calls {
 		i, tc := i, tc
@@ -437,6 +442,7 @@ func encodeToolResult(result any, execErr error) string {
 	if execErr != nil {
 		return fmt.Sprintf(`{"error":%q}`, execErr.Error())
 	}
+	// json.Marshal 把工具结果统一编码成 JSON，方便后续作为字符串写回对话记忆。
 	body, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Sprintf(`{"error":"marshal tool result failed: %s"}`, err.Error())

@@ -10,7 +10,7 @@
 
 ## 项目结构
 
-- `cmd/server/main.go`：服务入口与 `ingest` 子命令
+- `cmd/server/main.go`：服务入口与依赖装配
 - `internal/mcp`：HTTP MCP Server + Middleware + Hooks
 - `internal/agent`：基础 ReAct 引擎 + Adaptive Agentic RAG 核心模块
 - `internal/tools`：全部工具实现与注册
@@ -60,8 +60,17 @@ go run cmd/server/main.go run
 ```
 
 ```bash
-# 导入 Swagger 文件
-go run cmd/server/main.go ingest --file testdata/petstore.json --service petstore
+# 服务启动时会自动加载默认示例数据 testdata/petstore.json
+# 如需在运行中导入自定义 Swagger，可调用 parse_swagger
+curl -X POST http://localhost:8080/mcp \
+  -H 'Authorization: Bearer demo-token' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":2,
+    "method":"parse_swagger",
+    "params":{"file_path":"testdata/petstore.json","service":"petstore"}
+  }'
 ```
 
 ## 调用示例

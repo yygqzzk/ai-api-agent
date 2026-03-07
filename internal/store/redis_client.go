@@ -52,11 +52,13 @@ func NewRedisClient(opts RedisOptions) (RedisClient, error) {
 		if strings.TrimSpace(opts.Address) == "" {
 			return nil, fmt.Errorf("redis address is required when mode=redis")
 		}
+		// redis.NewClient 是 go-redis 创建客户端的入口；连接参数集中放在 redis.Options 里。
 		client := redis.NewClient(&redis.Options{
 			Addr:     opts.Address,
 			Password: opts.Password,
 			DB:       opts.DB,
 		})
+		// context.Background() 常用于启动/初始化阶段：这里没有上游请求可继承，只需一个基础 context 做连通性检查。
 		if err := client.Ping(context.Background()).Err(); err != nil {
 			_ = client.Close()
 			return nil, fmt.Errorf("redis ping failed: %w", err)
@@ -71,7 +73,9 @@ func (c *InMemoryRedisClient) Set(_ context.Context, key string, value string, t
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	expires := time.Time{}
+	// time.Time{} 是零值时间，这里把它当作“永不过期”的哨兵值。
 	if ttl > 0 {
+		// Add 会返回“当前时间 + ttl”后的绝对过期时刻，后续判断会更直接。
 		expires = time.Now().Add(ttl)
 	}
 	c.items[key] = cacheItem{value: value, expiresAt: expires}
@@ -79,12 +83,14 @@ func (c *InMemoryRedisClient) Set(_ context.Context, key string, value string, t
 }
 
 func (c *InMemoryRedisClient) Get(_ context.Context, key string) (string, bool, error) {
+	// sync.RWMutex 的 RLock/RUnlock 允许多个读者并发进入，适合这里的只读查询路径。
 	c.mu.RLock()
 	item, ok := c.items[key]
 	c.mu.RUnlock()
 	if !ok {
 		return "", false, nil
 	}
+	// IsZero 用来区分“永不过期”和“有明确截止时间”；After 判断当前时间是否已越过截止点。
 	if !item.expiresAt.IsZero() && time.Now().After(item.expiresAt) {
 		c.mu.Lock()
 		delete(c.items, key)
@@ -115,6 +121,7 @@ func (c *GoRedisClient) Set(ctx context.Context, key string, value string, ttl t
 
 func (c *GoRedisClient) Get(ctx context.Context, key string) (string, bool, error) {
 	v, err := c.client.Get(ctx, key).Result()
+	// redis.Nil 是 go-redis 约定的哨兵错误，表示 key 不存在，不应按真正故障处理。
 	if err == redis.Nil {
 		return "", false, nil
 	}

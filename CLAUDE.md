@@ -11,7 +11,6 @@ Go-based AI Agent engine that exposes enterprise API documentation querying via 
 ```bash
 make dev      # Start infrastructure (Milvus, etcd, MinIO, Redis) via docker-compose
 make run      # go run cmd/server/main.go run
-make ingest   # Ingest testdata/petstore.json into knowledge base (supports --service flag)
 make test     # go test ./...
 
 # Single package test
@@ -103,15 +102,20 @@ The system supports optional reranking to improve search accuracy:
 ## Testing the Server
 
 ```bash
-# Ingest sample data and query
-go run cmd/server/main.go ingest --file testdata/petstore.json --service petstore
+# Start server (auto-loads testdata/petstore.json when present)
 AUTH_TOKEN=demo-token go run cmd/server/main.go run
+
+# Optional: ingest a custom spec during runtime
+curl -X POST http://localhost:8080/mcp \
+  -H 'Authorization: Bearer demo-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"parse_swagger","params":{"file_path":"testdata/petstore.json","service":"petstore"}}'
 
 # Call the MCP endpoint
 curl -X POST http://localhost:8080/mcp \
   -H 'Authorization: Bearer demo-token' \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"query_api","params":{"query":"查询用户登录接口"}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"query_api","params":{"query":"查询用户登录接口"}}'
 
 # Health check
 curl http://localhost:8080/healthz
@@ -155,7 +159,7 @@ The `trace` array enables observability and debugging of agent decision flow.
 |-------|----------|
 | `connection refused` to Milvus/Redis | Run `make dev` to start infrastructure |
 | LLM timeout | Increase `LLM_TIMEOUT_SECONDS` or check API key |
-| Empty search results | Verify data ingestion with `make ingest` |
+| Empty search results | Verify default petstore bootstrap or ingest via `parse_swagger` / `/webhook/sync` |
 | `401 Unauthorized` | Set `AUTH_TOKEN` environment variable |
 | `connect: connection refused` to Milvus/Redis | Run `make dev` first |
 | Circuit breaker open | Check `/healthz` endpoint for service status |
