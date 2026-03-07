@@ -28,6 +28,5 @@ milvus:
   collection: "api_documents"
 
 redis:
-  mode: "memory"
-  address: "localhost:6379"
-  db: 0
+	address: "localhost:6379"
+	db: 0

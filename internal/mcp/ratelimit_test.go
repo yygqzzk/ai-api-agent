@@ -7,7 +7,7 @@ import (
 )
 
 func TestFixedWindowLimiter(t *testing.T) {
-	limiter := newFixedWindowLimiter(3) // 每分钟 3 个请求
+	limiter := newFixedWindowLimiterWithWindow(3, 100*time.Millisecond)
 
 	key := "test-client"
 
@@ -23,8 +23,8 @@ func TestFixedWindowLimiter(t *testing.T) {
 		t.Error("Request 4 should be rejected")
 	}
 
-	// 等待下一分钟
-	time.Sleep(time.Second * 61)
+	// 等待下一窗口
+	time.Sleep(120 * time.Millisecond)
 
 	// 现在应该允许
 	if !limiter.Allow(key) {
@@ -62,15 +62,29 @@ func TestFixedWindowLimiterStats(t *testing.T) {
 		limiter.Allow(key)
 	}
 
-	// 尝试 2 次被拒绝
-	for i := 0; i < 2; i++ {
-		limiter.Allow(key)
-	}
-
 	stats := limiter.Stats(key)
 
 	if stats.Available != 2 {
 		t.Errorf("Expected 2 available, got %d", stats.Available)
+	}
+	if stats.Rejected != 0 {
+		t.Errorf("Expected 0 rejected, got %d", stats.Rejected)
+	}
+
+	// 用满窗口并尝试 2 次被拒绝
+	for i := 0; i < 2; i++ {
+		if !limiter.Allow(key) {
+			t.Fatalf("request %d should still be allowed", i+4)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		limiter.Allow(key)
+	}
+
+	stats = limiter.Stats(key)
+
+	if stats.Available != 0 {
+		t.Errorf("Expected 0 available, got %d", stats.Available)
 	}
 	if stats.Rejected != 2 {
 		t.Errorf("Expected 2 rejected, got %d", stats.Rejected)
@@ -98,7 +112,7 @@ func TestFixedWindowLimiterReset(t *testing.T) {
 }
 
 func TestSlidingWindowLimiter(t *testing.T) {
-	limiter := newSlidingWindowLimiter(5, time.Second) // 每秒 5 个请求
+	limiter := newSlidingWindowLimiter(5, 200*time.Millisecond)
 
 	key := "test-client"
 
@@ -114,8 +128,8 @@ func TestSlidingWindowLimiter(t *testing.T) {
 		t.Error("Request 6 should be rejected")
 	}
 
-	// 等待 500ms，最早的一个请求过期
-	time.Sleep(time.Millisecond * 550)
+	// 等待整个窗口过去，最早的一批请求过期
+	time.Sleep(220 * time.Millisecond)
 
 	// 现在应该允许 1 个请求
 	if !limiter.Allow(key) {

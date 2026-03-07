@@ -36,10 +36,8 @@ func TestApplyEnvOverrides(t *testing.T) {
 	t.Setenv("LLM_TIMEOUT_SECONDS", "15")
 	t.Setenv("LLM_MAX_RETRIES", "4")
 	t.Setenv("LLM_RETRY_BACKOFF_MS", "120")
-	t.Setenv("MILVUS_MODE", "milvus")
 	t.Setenv("MILVUS_ADDRESS", "127.0.0.1:19530")
 	t.Setenv("REDIS_ADDRESS", "127.0.0.1:6379")
-	t.Setenv("REDIS_MODE", "redis")
 
 	cfg := Default()
 	if err := cfg.ApplyEnv(os.LookupEnv); err != nil {
@@ -57,17 +55,11 @@ func TestApplyEnvOverrides(t *testing.T) {
 		cfg.LLM.TimeoutSeconds != 15 || cfg.LLM.MaxRetries != 4 || cfg.LLM.RetryBackoffMS != 120 {
 		t.Fatalf("expected llm overrides, got %+v", cfg.LLM)
 	}
-	if cfg.Milvus.Mode != "milvus" {
-		t.Fatalf("expected milvus mode override, got %q", cfg.Milvus.Mode)
-	}
 	if cfg.Milvus.Address != "127.0.0.1:19530" {
 		t.Fatalf("expected milvus override, got %q", cfg.Milvus.Address)
 	}
 	if cfg.Redis.Address != "127.0.0.1:6379" {
 		t.Fatalf("expected redis override, got %q", cfg.Redis.Address)
-	}
-	if cfg.Redis.Mode != "redis" {
-		t.Fatalf("expected redis mode override, got %q", cfg.Redis.Mode)
 	}
 }
 

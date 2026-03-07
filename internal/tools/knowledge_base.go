@@ -51,6 +51,14 @@ func (k *KnowledgeBase) IngestFile(ctx context.Context, path string, service str
 	return k.upsertEndpoints(ctx, endpoints)
 }
 
+func (k *KnowledgeBase) IngestBytes(ctx context.Context, body []byte, service string) (knowledge.IngestStats, error) {
+	endpoints, err := knowledge.ParseSwaggerBytes(body, service)
+	if err != nil {
+		return knowledge.IngestStats{}, err
+	}
+	return k.upsertEndpoints(ctx, endpoints)
+}
+
 func (k *KnowledgeBase) IngestURL(ctx context.Context, rawURL string, service string) (knowledge.IngestStats, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(rawURL)

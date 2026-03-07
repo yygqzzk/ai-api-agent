@@ -16,8 +16,6 @@ import (
 
 func TestHealthzAllHealthy(t *testing.T) {
 	cfg := config.Default()
-	cfg.Milvus.Mode = "milvus"
-	cfg.Redis.Mode = "redis"
 	cfg.LLM.Provider = "openai"
 
 	checker := newHealthDependencyChecker(cfg, &fakeRedisClient{}, &fakeMilvusClient{}, &fakeLLMClient{healthErr: nil})
@@ -45,8 +43,6 @@ func TestHealthzAllHealthy(t *testing.T) {
 
 func TestHealthzDependencyDown(t *testing.T) {
 	cfg := config.Default()
-	cfg.Milvus.Mode = "milvus"
-	cfg.Redis.Mode = "redis"
 	cfg.LLM.Provider = "openai"
 
 	checker := newHealthDependencyChecker(cfg,

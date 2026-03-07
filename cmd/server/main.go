@@ -13,18 +13,20 @@
 //
 // ```
 // main()
-//   ├─> 加载配置 (config.Default + ApplyEnv)
-//   ├─> 解析命令 (ingest / run)
-//   └─> 执行命令
-//       ├─> runIngest: 导入 Swagger 文档
-//       └─> runServer: 启动 HTTP 服务
-//           ├─> 初始化日志和指标
-//           ├─> 创建知识库 (newKnowledgeBase)
-//           ├─> 注册工具 (RegisterDefaultTools)
-//           ├─> 创建 Agent 引擎
-//           ├─> 创建 MCP Server
-//           ├─> 启动 HTTP 服务器
-//           └─> 优雅关闭 (信号监听)
+//
+//	├─> 加载配置 (config.Default + ApplyEnv)
+//	├─> 解析命令 (ingest / run)
+//	└─> 执行命令
+//	    ├─> runIngest: 导入 Swagger 文档
+//	    └─> runServer: 启动 HTTP 服务
+//	        ├─> 初始化日志和指标
+//	        ├─> 创建知识库 (newKnowledgeBase)
+//	        ├─> 注册工具 (RegisterDefaultTools)
+//	        ├─> 创建 Agent 引擎
+//	        ├─> 创建 MCP Server
+//	        ├─> 启动 HTTP 服务器
+//	        └─> 优雅关闭 (信号监听)
+//
 // ```
 //
 // # 依赖注入模式
@@ -68,12 +70,14 @@ import (
 	"ai-agent-api/internal/agent"
 	"ai-agent-api/internal/config"
 	"ai-agent-api/internal/embedding"
+	ingestsvc "ai-agent-api/internal/ingest"
 	"ai-agent-api/internal/mcp"
 	"ai-agent-api/internal/observability"
 	"ai-agent-api/internal/rag"
 	"ai-agent-api/internal/rerank"
 	"ai-agent-api/internal/store"
 	"ai-agent-api/internal/tools"
+	webhooksvc "ai-agent-api/internal/webhook"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -170,17 +174,26 @@ func runServer(cfg config.Config) error {
 		return fmt.Errorf("register default tools: %w", err)
 	}
 
-	// 创建 Agent 引擎
-	engine := agent.NewAgentEngine(
+	// 创建基础 Agent 引擎
+	baseEngine := agent.NewAgentEngine(
 		llmClient,
 		registry,
 		agent.WithMaxSteps(cfg.Agent.MaxSteps),
 		agent.WithMetrics(metrics),
 	)
-	engine.SetToolCatalog(toAgentToolCatalog(registry.ToolDefinitions()))
+	baseEngine.SetToolCatalog(toAgentToolCatalog(registry.ToolDefinitions()))
+
+	adaptiveEngine := agent.NewAdaptiveAgentEngine(baseEngine, registry, agent.AdaptiveAgentEngineOptions{
+		Selector:         agent.NewLLMBasedStrategySelector(llmClient, agent.NewRuleBasedStrategySelector()),
+		Rewriter:         agent.NewLLMQueryRewriter(llmClient, agent.NewRuleBasedQueryRewriter()),
+		Planner:          agent.NewLLMPlanner(llmClient, agent.NewRuleBasedPlanner()),
+		Reflector:        agent.NewLLMReflector(llmClient, agent.NewRuleBasedReflector(0.7), 0.7),
+		MaxRetries:       1,
+		QualityThreshold: 0.7,
+	})
 
 	// 注册 query_api 工具 (需要 Agent 引擎支持)
-	if err := tools.RegisterQueryTool(registry, engine); err != nil {
+	if err := tools.RegisterQueryTool(registry, adaptiveEngine); err != nil {
 		return fmt.Errorf("register query_api tool: %w", err)
 	}
 
@@ -212,19 +225,26 @@ func runServer(cfg config.Config) error {
 		Metrics:            metrics,
 		Logger:             logger,
 	})
-	mcpServer.SetStreamRunner(engine)
+	mcpServer.SetStreamRunner(baseEngine)
 	if err := mcpServer.Init(ctx); err != nil {
 		return err
 	}
 
 	// 创建健康检查器
 	healthChecker := newHealthDependencyChecker(cfg, stores.cache, stores.milvus, llmClient)
+	ingestService := ingestsvc.NewService(kb, &http.Client{Timeout: 30 * time.Second})
+	webhookHandler := webhooksvc.NewHandler(ingestService, webhooksvc.HandlerOptions{
+		Secret:       os.Getenv("WEBHOOK_SECRET"),
+		BearerToken:  cfg.Server.AuthToken,
+		ProcessAsync: true,
+	})
 
 	// 配置 HTTP 路由
 	rootMux := http.NewServeMux()
 	rootMux.Handle("/mcp", mcpServer.Handler())
 	rootMux.Handle("/healthz", newHealthHandler(healthChecker))
 	rootMux.Handle("/metrics", promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{}))
+	rootMux.Handle("/webhook/sync", http.HandlerFunc(webhookHandler.HandleSync))
 
 	// 创建 HTTP 服务器
 	httpServer := &http.Server{
@@ -359,7 +379,7 @@ type runtimeStores struct {
 func newKnowledgeBase(ctx context.Context, cfg config.Config) (*tools.KnowledgeBase, runtimeStores, func(), error) {
 	// 创建 Redis 客户端
 	cache, err := store.NewRedisClient(store.RedisOptions{
-		Mode:    cfg.Redis.Mode,
+		Mode:    "redis",
 		Address: cfg.Redis.Address,
 		DB:      cfg.Redis.DB,
 	})
@@ -371,39 +391,30 @@ func newKnowledgeBase(ctx context.Context, cfg config.Config) (*tools.KnowledgeB
 	var milvusClient store.MilvusClient
 	var milvusCleanup func()
 
-	// 根据配置选择存储后端
-	switch cfg.Milvus.Mode {
-	case "milvus":
-		// 生产模式: 使用 Milvus + OpenAI Embeddings
-		// 优先使用独立的 embedding 配置，否则回退到 LLM 配置
-		embeddingAPIKey := cfg.RAG.EmbeddingAPIKey
-		if embeddingAPIKey == "" {
-			embeddingAPIKey = cfg.LLM.APIKey
-		}
-		embeddingBaseURL := cfg.RAG.EmbeddingBaseURL
-		if embeddingBaseURL == "" {
-			embeddingBaseURL = cfg.LLM.BaseURL
-		}
-		embedder := embedding.NewOpenAIClient(
-			embeddingAPIKey,
-			embeddingBaseURL,
-			cfg.RAG.EmbeddingModel,
-			cfg.RAG.EmbeddingDim,
-		)
-		sdkMilvusClient, err := store.NewSDKMilvusClient(ctx, cfg.Milvus.Address, cfg.RAG.EmbeddingDim)
-		if err != nil {
-			_ = cache.Close(context.Background())
-			return nil, runtimeStores{}, nil, fmt.Errorf("init milvus client failed: %w", err)
-		}
-		ragStore = rag.NewMilvusStore(sdkMilvusClient, embedder, cfg.Milvus.Collection)
-		milvusClient = sdkMilvusClient
-		milvusCleanup = func() {
-			_ = ragStore.Close(context.Background())
-		}
-	default:
-		// 开发模式: 使用内存存储
-		ragStore = rag.NewMemoryStore()
-		milvusCleanup = func() {}
+	// 使用真实 Milvus + Embedding 组件；本地通过 make dev 启动依赖。
+	embeddingAPIKey := cfg.RAG.EmbeddingAPIKey
+	if embeddingAPIKey == "" {
+		embeddingAPIKey = cfg.LLM.APIKey
+	}
+	embeddingBaseURL := cfg.RAG.EmbeddingBaseURL
+	if embeddingBaseURL == "" {
+		embeddingBaseURL = cfg.LLM.BaseURL
+	}
+	embedder := embedding.NewOpenAIClient(
+		embeddingAPIKey,
+		embeddingBaseURL,
+		cfg.RAG.EmbeddingModel,
+		cfg.RAG.EmbeddingDim,
+	)
+	sdkMilvusClient, err := store.NewSDKMilvusClient(ctx, cfg.Milvus.Address, cfg.RAG.EmbeddingDim)
+	if err != nil {
+		_ = cache.Close(context.Background())
+		return nil, runtimeStores{}, nil, fmt.Errorf("init milvus client failed: %w", err)
+	}
+	ragStore = rag.NewMilvusStore(sdkMilvusClient, embedder, cfg.Milvus.Collection)
+	milvusClient = sdkMilvusClient
+	milvusCleanup = func() {
+		_ = ragStore.Close(context.Background())
 	}
 
 	// 创建 rerank 客户端并包装 ragStore
@@ -415,7 +426,7 @@ func newKnowledgeBase(ctx context.Context, cfg config.Config) (*tools.KnowledgeB
 	if rerankAPIKey == "" {
 		rerankAPIKey = cfg.LLM.APIKey
 	}
-	
+
 	rerankBaseURL := cfg.RAG.RerankBaseURL
 	if rerankBaseURL == "" {
 		rerankBaseURL = cfg.RAG.EmbeddingBaseURL

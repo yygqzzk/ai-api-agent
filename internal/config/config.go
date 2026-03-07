@@ -50,13 +50,11 @@ type RAGConfig struct {
 }
 
 type MilvusConfig struct {
-	Mode       string
 	Address    string
 	Collection string
 }
 
 type RedisConfig struct {
-	Mode    string
 	Address string
 	DB      int
 }
@@ -93,12 +91,10 @@ func Default() Config {
 			TopN:             5,
 		},
 		Milvus: MilvusConfig{
-			Mode:       "memory",
 			Address:    "localhost:19530",
 			Collection: "api_documents",
 		},
 		Redis: RedisConfig{
-			Mode:    "memory",
 			Address: "localhost:6379",
 			DB:      0,
 		},
@@ -156,17 +152,11 @@ func (c *Config) ApplyEnv(lookup LookupEnvFunc) error {
 		}
 		c.LLM.RetryBackoffMS = n
 	}
-	if v, ok := lookup("MILVUS_MODE"); ok && v != "" {
-		c.Milvus.Mode = v
-	}
 	if v, ok := lookup("MILVUS_ADDRESS"); ok && v != "" {
 		c.Milvus.Address = v
 	}
 	if v, ok := lookup("REDIS_ADDRESS"); ok && v != "" {
 		c.Redis.Address = v
-	}
-	if v, ok := lookup("REDIS_MODE"); ok && v != "" {
-		c.Redis.Mode = v
 	}
 	if v, ok := lookup("EMBEDDING_API_KEY"); ok && v != "" {
 		c.RAG.EmbeddingAPIKey = v

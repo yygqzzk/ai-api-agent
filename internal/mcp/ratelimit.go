@@ -3,7 +3,6 @@
 package mcp
 
 import (
-	"math"
 	"sync"
 	"time"
 )
@@ -26,9 +25,9 @@ type RateLimiter interface {
 
 // RateLimitStats 限流统计
 type RateLimitStats struct {
-	Available int         // 可用请求数
-	WindowEnd time.Time   // 当前窗口结束时间
-	Rejected  int         // 拒绝计数
+	Available int       // 可用请求数
+	WindowEnd time.Time // 当前窗口结束时间
+	Rejected  int       // 拒绝计数
 }
 
 // Algorithm 限流算法类型
@@ -58,9 +57,9 @@ func (a Algorithm) String() string {
 
 // Config 限流器配置
 type Config struct {
-	Algorithm Algorithm // 限流算法
-	Limit     int        // 每秒最大请求数（令牌桶为桶容量）
-	Burst     int        // 突发容量（令牌桶为桶爆发容量）
+	Algorithm Algorithm     // 限流算法
+	Limit     int           // 每秒最大请求数（令牌桶为桶容量）
+	Burst     int           // 突发容量（令牌桶为桶爆发容量）
 	Window    time.Duration // 时间窗口（固定/滑动窗口）
 	Interval  time.Duration // 令牌填充间隔
 }
@@ -81,6 +80,7 @@ func DefaultConfig() Config {
 type FixedWindowLimiter struct {
 	mu      sync.Mutex
 	limit   int
+	window  time.Duration
 	windows map[string]*windowCounter
 }
 
@@ -92,11 +92,19 @@ type windowCounter struct {
 }
 
 func newFixedWindowLimiter(limit int) *FixedWindowLimiter {
+	return newFixedWindowLimiterWithWindow(limit, time.Minute)
+}
+
+func newFixedWindowLimiterWithWindow(limit int, window time.Duration) *FixedWindowLimiter {
 	if limit <= 0 {
 		limit = 60
 	}
+	if window <= 0 {
+		window = time.Minute
+	}
 	return &FixedWindowLimiter{
 		limit:   limit,
+		window:  window,
 		windows: make(map[string]*windowCounter),
 	}
 }
@@ -106,8 +114,14 @@ func (l *FixedWindowLimiter) Allow(key string) bool {
 }
 
 func (l *FixedWindowLimiter) AllowN(key string, n int) bool {
+	if n <= 0 {
+		return true
+	}
+	if n > l.limit {
+		return false
+	}
 	now := time.Now()
-	windowStart := now.Truncate(time.Minute)
+	windowStart := now.Truncate(l.window)
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -137,7 +151,7 @@ func (l *FixedWindowLimiter) Wait(key string) time.Duration {
 	defer l.mu.Unlock()
 
 	if current, ok := l.windows[key]; ok {
-		return time.Until(current.windowStart.Add(time.Minute))
+		return time.Until(current.windowStart.Add(l.window))
 	}
 	return 0
 }
@@ -166,7 +180,7 @@ func (l *FixedWindowLimiter) Stats(key string) RateLimitStats {
 		}
 		return RateLimitStats{
 			Available: available,
-			WindowEnd: current.windowStart.Add(time.Minute),
+			WindowEnd: current.windowStart.Add(l.window),
 			Rejected:  current.rejected,
 		}
 	}
@@ -292,12 +306,12 @@ func (l *SlidingWindowLimiter) Stats(key string) RateLimitStats {
 // TokenBucketLimiter 令牌桶限流器
 // 适合处理突发流量，平滑限流
 type TokenBucketLimiter struct {
-	mu       sync.Mutex
-	capacity int64       // 桶容量
-	tokens   int64       // 当前令牌数
-	lastRefill time.Time  // 上次填充时间
-	interval time.Duration // 填充间隔
-	fillRate float64      // 每次填充的令牌数
+	mu           sync.Mutex
+	refillTokens int64
+	maxTokens    int64
+	tokens       int64
+	lastRefill   time.Time
+	interval     time.Duration
 }
 
 func newTokenBucketLimiter(capacity, burst int, interval time.Duration) *TokenBucketLimiter {
@@ -310,12 +324,16 @@ func newTokenBucketLimiter(capacity, burst int, interval time.Duration) *TokenBu
 	if interval == 0 {
 		interval = time.Second
 	}
+	maxTokens := burst
+	if maxTokens < capacity {
+		maxTokens = capacity
+	}
 
 	return &TokenBucketLimiter{
-		capacity: int64(capacity),
-		tokens:   int64(capacity), // 初始满桶
-		interval: interval,
-		fillRate: float64(capacity) / float64(time.Second) * float64(interval),
+		refillTokens: int64(capacity),
+		maxTokens:    int64(maxTokens),
+		tokens:       int64(maxTokens),
+		interval:     interval,
 	}
 }
 
@@ -327,6 +345,9 @@ func (l *TokenBucketLimiter) Allow(key string) bool {
 func (l *TokenBucketLimiter) AllowN(key string, n int) bool {
 	if n <= 0 {
 		return true
+	}
+	if int64(n) > l.maxTokens {
+		return false
 	}
 
 	l.mu.Lock()
@@ -351,41 +372,30 @@ func (l *TokenBucketLimiter) refill() {
 	}
 
 	elapsed := now.Sub(l.lastRefill)
-	if elapsed < l.interval {
+	intervals := elapsed / l.interval
+	if intervals <= 0 {
 		return
 	}
 
-	// 计算需要填充的次数
-	intervals := float64(elapsed) / float64(l.interval)
-	tokensToAdd := int64(intervals * l.fillRate)
+	tokensToAdd := int64(intervals) * l.refillTokens
 
 	l.tokens += tokensToAdd
-	if l.tokens > l.capacity {
-		l.tokens = l.capacity
+	if l.tokens > l.maxTokens {
+		l.tokens = l.maxTokens
 	}
 
-	l.lastRefill = now
+	l.lastRefill = l.lastRefill.Add(intervals * l.interval)
 }
 
 func (l *TokenBucketLimiter) Wait(key string) time.Duration {
-	if l.Allow(key) {
-		return 0
-	}
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	l.refill()
-
-	if l.tokens <= 0 {
-		// 计算等待一个令牌的时间
-		return l.interval
-	}
-	return 0
+	return l.WaitN(key, 1)
 }
 
 func (l *TokenBucketLimiter) WaitN(key string, n int) time.Duration {
-	if l.AllowN(key, n) {
+	if n <= 0 {
+		return 0
+	}
+	if int64(n) > l.maxTokens {
 		return 0
 	}
 
@@ -393,26 +403,32 @@ func (l *TokenBucketLimiter) WaitN(key string, n int) time.Duration {
 	defer l.mu.Unlock()
 
 	l.refill()
-
-	if l.tokens < int64(n) {
-		// 计算等待 n 个令牌的时间
-		needed := int64(n) - l.tokens
-		intervals := math.Ceil(float64(needed) / l.fillRate)
-		return time.Duration(float64(l.interval) * intervals)
+	if l.tokens >= int64(n) {
+		return 0
 	}
-	return 0
+
+	needed := int64(n) - l.tokens
+	now := time.Now()
+	elapsed := now.Sub(l.lastRefill)
+	remaining := l.interval - elapsed
+	if remaining < 0 {
+		remaining = 0
+	}
+	additionalIntervals := (needed - 1) / l.refillTokens
+	return remaining + time.Duration(additionalIntervals)*l.interval
 }
 
 func (l *TokenBucketLimiter) Reset(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.tokens = l.capacity
+	l.tokens = l.maxTokens
 	l.lastRefill = time.Time{}
 }
 
 func (l *TokenBucketLimiter) Stats(key string) RateLimitStats {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.refill()
 
 	return RateLimitStats{
 		Available: int(l.tokens),
@@ -423,7 +439,7 @@ func (l *TokenBucketLimiter) Stats(key string) RateLimitStats {
 func NewRateLimiter(cfg Config) RateLimiter {
 	switch cfg.Algorithm {
 	case FixedWindow:
-		return newFixedWindowLimiter(cfg.Limit)
+		return newFixedWindowLimiterWithWindow(cfg.Limit, cfg.Window)
 	case SlidingWindow:
 		return newSlidingWindowLimiter(cfg.Limit, cfg.Window)
 	case TokenBucket:

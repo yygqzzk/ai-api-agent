@@ -1,0 +1,61 @@
+name: Sync API Docs to Knowledge Base
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'docs/api/**/*.json'
+      - 'docs/api/**/*.yaml'
+      - 'docs/api/**/*.yml'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Get changed API docs
+        id: changed-files
+        shell: bash
+        run: |
+          files=$(git diff --name-only HEAD^ HEAD | grep -E '^docs/api/.*\.(json|yaml|yml)$' || true)
+          {
+            echo 'files<<EOF'
+            echo "$files"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Sync docs to API assistant
+        if: steps.changed-files.outputs.files != ''
+        env:
+          API_ASSISTANT_URL: ${{ secrets.API_ASSISTANT_URL }}
+          API_ASSISTANT_TOKEN: ${{ secrets.API_ASSISTANT_TOKEN }}
+        shell: bash
+        run: |
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            service_name=$(basename "$file")
+            service_name=${service_name%.*}
+            curl -fsSL -X POST "$API_ASSISTANT_URL/webhook/sync" \
+              -H "Authorization: Bearer $API_ASSISTANT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d @- <<EOF
+          {
+            "event": "push",
+            "repository": "${{ github.repository }}",
+            "branch": "${{ github.ref_name }}",
+            "commit": "${{ github.sha }}",
+            "files": [{
+              "path": "$file",
+              "action": "modified",
+              "service": "$service_name",
+              "content": $(jq -Rs . < "$file")
+            }]
+          }
+          EOF
+          done <<< "${{ steps.changed-files.outputs.files }}"

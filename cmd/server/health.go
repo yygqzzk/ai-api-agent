@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"ai-agent-api/internal/agent"
@@ -82,10 +81,6 @@ func (c *dependencyHealthChecker) snapshot(ctx context.Context) healthzResponse 
 }
 
 func (c *dependencyHealthChecker) checkRedis(ctx context.Context) healthzCheck {
-	mode := strings.ToLower(strings.TrimSpace(c.cfg.Redis.Mode))
-	if mode == "" || mode == "memory" {
-		return healthzCheck{Status: "ok", Message: "memory mode"}
-	}
 	if c.redis == nil {
 		return healthzCheck{Status: "down", Message: "redis client is nil"}
 	}
@@ -100,10 +95,6 @@ func (c *dependencyHealthChecker) checkRedis(ctx context.Context) healthzCheck {
 }
 
 func (c *dependencyHealthChecker) checkMilvus(ctx context.Context) healthzCheck {
-	mode := strings.ToLower(strings.TrimSpace(c.cfg.Milvus.Mode))
-	if mode == "" || mode == "memory" {
-		return healthzCheck{Status: "ok", Message: "memory mode"}
-	}
 	if c.milvus == nil {
 		return healthzCheck{Status: "down", Message: "milvus client is nil"}
 	}
