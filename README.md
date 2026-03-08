@@ -1,79 +1,71 @@
-# 企业级智能 API 助手（MVP）
+# 万知 (WanZhi)
 
-基于 `docs/design.md` 的 Go 实现，提供 MCP 风格 `/mcp` 接口，支持：
-- Swagger 文档导入（`parse_swagger`）
-- API 语义检索（`search_api`）
-- 详情查询、依赖分析、示例生成、参数校验
-- `query_api` Adaptive Agentic RAG 查询入口（策略选择、改写、规划、反思）
-- `/healthz` 健康探针（Redis / Milvus / LLM）
-- `/webhook/sync` API 文档自动同步入口
+> 企业级 API 文档智能问答助手
 
-## 项目结构
+万知是一个专为企业 API 文档设计的单领域 Agent，通过自然语言查询接口文档、生成调用示例、分析参数依赖。基于 Go + Gin + Milvus 构建，提供 MCP JSON-RPC 和 Chat SSE 两种接入方式。
 
-- `cmd/server/main.go`：服务入口与依赖装配
-- `internal/mcp`：HTTP MCP Server + Middleware + Hooks
-- `internal/agent`：基础 ReAct 引擎 + Adaptive Agentic RAG 核心模块
-- `internal/tools`：全部工具实现与注册
-- `internal/knowledge`：Swagger 解析与知识模型
-- `internal/rag`：分块与检索引擎（MemoryStore / MilvusStore）
-- `internal/store`：Milvus/Redis 客户端抽象（服务入口默认走真实依赖）
+## 特性
 
-## 依赖准备
+- **🤖 Adaptive Agentic RAG**：智能策略选择，根据查询复杂度自动路由
+- **📚 Swagger 文档导入**：支持 OpenAPI 2.0 规范，自动解析接口元数据
+- **🔍 语义检索**：基于向量数据库的高精度 API 搜索
+- **🔄 可选重排序**：支持二次精排，提升召回准确率
+- **📡 双接入模式**：
+  - **MCP JSON-RPC**：标准 JSON-RPC 2.0 协议，适合工具集成
+  - **Chat SSE**：Server-Sent Events 流式响应，适合对话式交互
+- **🛡️ 企业级特性**：认证、限流、熔断、重试、健康检查
 
-服务入口默认连接 Redis 与 Milvus，本地开发前请先启动依赖：
+## 架构
+
+```
+┌─────────────────┐
+│  接入层          │  MCP JSON-RPC  |  Chat SSE
+│  (Transport)    │  /mcp          │  /api/chat
+└─────────────────┘
+        │
+┌─────────────────┐
+│  Agent 核心      │  QueryRunner (策略选择/改写/规划/反思)
+└─────────────────┘
+        │
+┌─────────────────┐
+│  工具层          │  Knowledge Base (API 文档 + RAG 检索)
+└─────────────────┘
+        │
+┌─────────────────┐
+│  基础设施        │  Milvus (向量) | Redis (缓存) | LLM
+└─────────────────┘
+```
+
+## 快速开始
+
+### 1. 启动依赖
 
 ```bash
 make dev
 ```
 
-## 快速开始
+这会启动：
+- **Milvus**：向量数据库（localhost:19530）
+- **Redis**：缓存和持久化（localhost:6379）
+- **MinIO**：对象存储（可选）
+
+### 2. 启动服务
 
 ```bash
-go test ./...
-```
-
-```bash
-# 启动服务（默认端口 8080）
+# 基础模式（规则式 LLM，无需 API Key）
 AUTH_TOKEN=demo-token go run cmd/server/main.go run
-```
 
-```bash
-# 使用 OpenAI 兼容 LLM（Function Calling）
+# 完整模式（OpenAI 兼容 LLM）
 AUTH_TOKEN=demo-token \
-LLM_PROVIDER=openai \
 LLM_API_KEY=your-key \
-LLM_MODEL=gpt-4o-mini \
 LLM_BASE_URL=https://api.openai.com \
-LLM_TIMEOUT_SECONDS=30 \
-LLM_MAX_RETRIES=2 \
-LLM_RETRY_BACKOFF_MS=200 \
+LLM_MODEL=gpt-4o-mini \
 go run cmd/server/main.go run
 ```
 
-```bash
-# 使用 OpenAI 兼容 LLM + Redis/Milvus 依赖运行服务
-AUTH_TOKEN=demo-token \
-WEBHOOK_SECRET=demo-webhook-secret \
-REDIS_ADDRESS=127.0.0.1:6379 \
-MILVUS_ADDRESS=127.0.0.1:19530 \
-go run cmd/server/main.go run
-```
+### 3. 测试 API
 
-```bash
-# 服务启动时会自动加载默认示例数据 testdata/petstore.json
-# 如需在运行中导入自定义 Swagger，可调用 parse_swagger
-curl -X POST http://localhost:8080/mcp \
-  -H 'Authorization: Bearer demo-token' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "jsonrpc":"2.0",
-    "id":2,
-    "method":"parse_swagger",
-    "params":{"file_path":"testdata/petstore.json","service":"petstore"}
-  }'
-```
-
-## 调用示例
+**方式一：MCP JSON-RPC**
 
 ```bash
 curl -X POST http://localhost:8080/mcp \
@@ -83,67 +75,69 @@ curl -X POST http://localhost:8080/mcp \
     "jsonrpc":"2.0",
     "id":1,
     "method":"query_api",
-    "params":{"query":"查询用户登录接口参数和go示例"}
+    "params":{"query":"查询用户登录接口"}
   }'
 ```
 
-健康检查：
+**方式二：Chat SSE**
 
 ```bash
-curl http://localhost:8080/healthz
-```
-
-Webhook 同步：
-
-```bash
-curl -X POST http://localhost:8080/webhook/sync \
-  -H 'Authorization: Bearer demo-token' \
+curl -N -X POST http://localhost:8080/api/chat \
   -H 'Content-Type: application/json' \
-  -d '{
-    "event":"push",
-    "repository":"company/api-docs",
-    "branch":"main",
-    "files":[{
-      "path":"docs/api/user-service.json",
-      "service":"user-service",
-      "content":"{\"swagger\":\"2.0\",\"info\":{\"title\":\"User Service\",\"version\":\"1.0.0\"},\"paths\":{}}"
-    }]
-  }'
+  -d '{"message":"查询用户登录接口的参数和 Go 示例"}'
 ```
 
-## Tag 发布同步
+## 配置
 
-- `.github/workflows/sync-api-docs.yml` 现在只在 **tag push** 时触发，并会全量同步 `docs/api` 下的文档。
-- 工作流会在上传前读取 GitHub Actions Repository Variable `API_DOC_META_OVERRIDES_JSON`，把 `host`、`basePath`、`schemes` 注入文档内容，再通过 `/webhook/sync` 入库。
-- `generate_example` 会优先使用这份文档级元数据拼接真实请求 URL；`get_api_detail` 与 `parse_swagger` 返回值也会带上 `spec`。
+| 环境变量 | 默认值 | 说明 |
+|---------|--------|------|
+| `PORT` | 8080 | 服务端口 |
+| `AUTH_TOKEN` | (空) | MCP 接口认证 Token |
+| `LLM_API_KEY` | (空) | LLM API Key |
+| `LLM_BASE_URL` | (空) | LLM API Endpoint |
+| `LLM_MODEL` | gpt-4o-mini | 模型名称 |
+| `REDIS_ADDRESS` | localhost:6379 | Redis 地址 |
+| `MILVUS_ADDRESS` | localhost:19530 | Milvus 地址 |
 
-变量示例：
+## 运行测试
 
-```json
-{
-  "default": {
-    "schemes": ["https"]
-  },
-  "user-service": {
-    "host": "api.example.com",
-    "basePath": "/user"
-  },
-  "order-service": {
-    "host": "api.example.com",
-    "basePath": "/order",
-    "schemes": ["https"]
-  }
-}
+```bash
+# 单元测试
+go test ./...
+
+# 覆盖率报告
+go test -cover ./...
+
+# E2E 测试（需要真实依赖）
+RUN_REAL_REDIS_MILVUS_E2E=1 go test ./internal/e2e/...
 ```
 
-## 当前实现说明
+## 项目结构
 
-- 已实现设计文档中的核心链路与模块分层。
-- Agent 已支持 OpenAI 兼容 Chat Completions + Function Calling，并注入工具 schema。
-- `query_api` 已切换为 Adaptive Agentic RAG runner：支持简单/复杂/模糊查询的差异化处理。
-- 新增写入侧 `internal/ingest` + `internal/webhook`，支持通过 webhook 自动同步 API 文档。
-- OpenAI 客户端支持 429/5xx 自动重试（可配 `LLM_MAX_RETRIES`、`LLM_RETRY_BACKOFF_MS`）与请求超时（`LLM_TIMEOUT_SECONDS`）。
-- 当未提供可用 LLM 配置时，会自动回退到规则式 LLM（便于本地离线演示）。
-- `query_api` 在保持 `summary` 文本兼容的同时，新增结构化 `trace` 数组用于可观测性。
-- 知识库元数据与 endpoint 明细持久化在 Redis 中；服务入口默认使用真实 Redis/Milvus。
-- `query_api` 是唯一触发 Agent Loop 的入口，Agent 内部再调度其他工具。
+```
+cmd/server/          # 服务入口
+internal/
+  ├── agent/         # Agent 引擎（ReAct + Adaptive）
+  ├── config/        # 配置加载（caarlos0/env）
+  ├── knowledge/     # Swagger 解析和知识模型
+  ├── mcp/           # MCP 服务器（Gin 中间件 + JSON-RPC）
+  ├── rag/           # RAG 检索（MemoryStore / MilvusStore）
+  ├── tools/         # 工具实现（query_api / parse_swagger 等）
+  ├── transport/     # 接入层（Chat SSE）
+  └── webhook/       # Webhook 同步
+```
+
+## 技术栈
+
+- **Go 1.25**
+- **Gin**：HTTP 路由框架
+- **Milvus**：向量数据库
+- **Redis**：缓存和持久化
+- **OpenAI-compatible LLM**：大模型（支持 Function Calling）
+
+## 文档
+
+- [设计文档](docs/design.md)
+- [本地开发指南](docs/local-setup-guide.md)
+- [弹性实现说明](docs/resilience-implementation.md)
+- [快速参考](QUICKSTART.md)

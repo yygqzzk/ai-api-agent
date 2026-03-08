@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Go-based AI Agent engine that exposes enterprise API documentation querying via a custom MCP (Model Context Protocol) JSON-RPC HTTP server. Users query API docs in natural language; the agent orchestrates multiple tools to search, retrieve details, and generate examples.
+万知 (WanZhi) is an enterprise API documentation intelligent assistant built with Go. It provides natural language querying of API docs, example generation, and dependency analysis through two interfaces: MCP JSON-RPC (for tool integration) and Chat SSE (for conversational interaction). Based on Gin + Milvus + Redis architecture.
 
 ## Build & Test Commands
 
@@ -32,6 +32,11 @@ HTTP POST /mcp (JSON-RPC 2.0)
         → StrategySelector (simple / complex / ambiguous)
           → QueryRewriter / Planner / Reflector
             → agent.AgentEngine.Run() or direct tool dispatch
+
+HTTP POST /api/chat (SSE)
+  → transport.ChatHandler
+    → agent.StreamRunner.RunStream()
+      → Same AdaptiveAgentEngine with SSE streaming
 
 HTTP POST /webhook/sync
   → webhook.Handler (signature/token auth)
@@ -116,6 +121,11 @@ curl -X POST http://localhost:8080/mcp \
   -H 'Authorization: Bearer demo-token' \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"query_api","params":{"query":"查询用户登录接口"}}'
+
+# Call the Chat SSE endpoint
+curl -N -X POST http://localhost:8080/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"查询用户登录接口的参数和 Go 示例"}'
 
 # Health check
 curl http://localhost:8080/healthz
