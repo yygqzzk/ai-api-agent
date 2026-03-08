@@ -1,11 +1,8 @@
 package config
 
 import (
-	"fmt"
-	"strconv"
+	"github.com/caarlos0/env/v11"
 )
-
-type LookupEnvFunc func(string) (string, bool)
 
 type Config struct {
 	Server ServerConfig
@@ -17,183 +14,54 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port      int
-	AuthToken string
+	Port      int    `env:"PORT"       envDefault:"8080"`
+	AuthToken string `env:"AUTH_TOKEN"`
 }
 
 type LLMConfig struct {
-	Provider       string
-	APIKey         string
-	Model          string
-	BaseURL        string
-	MaxTokens      int
-	TimeoutSeconds int
-	MaxRetries     int
-	RetryBackoffMS int
+	Provider       string `env:"LLM_PROVIDER"        envDefault:"openai"`
+	APIKey         string `env:"LLM_API_KEY"`
+	Model          string `env:"LLM_MODEL"            envDefault:"gpt-4o-mini"`
+	BaseURL        string `env:"LLM_BASE_URL"`
+	MaxTokens      int    `env:"LLM_MAX_TOKENS"       envDefault:"4096"`
+	TimeoutSeconds int    `env:"LLM_TIMEOUT_SECONDS"  envDefault:"30"`
+	MaxRetries     int    `env:"LLM_MAX_RETRIES"      envDefault:"2"`
+	RetryBackoffMS int    `env:"LLM_RETRY_BACKOFF_MS" envDefault:"200"`
 }
 
 type AgentConfig struct {
-	MaxSteps    int
-	Temperature float64
+	MaxSteps    int     `env:"AGENT_MAX_STEPS"    envDefault:"10"`
+	Temperature float64 `env:"AGENT_TEMPERATURE"  envDefault:"0.1"`
 }
 
 type RAGConfig struct {
-	EmbeddingAPIKey  string
-	EmbeddingBaseURL string
-	EmbeddingModel   string
-	EmbeddingDim     int
-	RerankAPIKey     string
-	RerankBaseURL    string
-	RerankModel      string
-	TopK             int
-	TopN             int
+	EmbeddingAPIKey  string `env:"EMBEDDING_API_KEY"`
+	EmbeddingBaseURL string `env:"EMBEDDING_BASE_URL"`
+	EmbeddingModel   string `env:"EMBEDDING_MODEL"  envDefault:"bge-large-zh-v1.5"`
+	EmbeddingDim     int    `env:"EMBEDDING_DIM"    envDefault:"1024"`
+	RerankAPIKey     string `env:"RERANK_API_KEY"`
+	RerankBaseURL    string `env:"RERANK_BASE_URL"`
+	RerankModel      string `env:"RERANK_MODEL"     envDefault:"qwen3-vl-rerank"`
+	TopK             int    `env:"RAG_TOP_K"        envDefault:"20"`
+	TopN             int    `env:"RAG_TOP_N"        envDefault:"5"`
 }
 
 type MilvusConfig struct {
-	Address    string
-	Collection string
+	Address    string `env:"MILVUS_ADDRESS"    envDefault:"localhost:19530"`
+	Collection string `env:"MILVUS_COLLECTION" envDefault:"api_documents"`
 }
 
 type RedisConfig struct {
-	Address  string
-	Password string
-	DB       int
+	Address  string `env:"REDIS_ADDRESS"  envDefault:"localhost:6379"`
+	Password string `env:"REDIS_PASSWORD"`
+	DB       int    `env:"REDIS_DB"       envDefault:"0"`
 }
 
-func Default() Config {
-	return Config{
-		Server: ServerConfig{
-			Port:      8080,
-			AuthToken: "",
-		},
-		LLM: LLMConfig{
-			Provider:       "openai",
-			APIKey:         "",
-			Model:          "gpt-4o-mini",
-			BaseURL:        "",
-			MaxTokens:      4096,
-			TimeoutSeconds: 30,
-			MaxRetries:     2,
-			RetryBackoffMS: 200,
-		},
-		Agent: AgentConfig{
-			MaxSteps:    10,
-			Temperature: 0.1,
-		},
-		RAG: RAGConfig{
-			EmbeddingAPIKey:  "",
-			EmbeddingBaseURL: "",
-			EmbeddingModel:   "bge-large-zh-v1.5",
-			EmbeddingDim:     1024,
-			RerankAPIKey:     "",
-			RerankBaseURL:    "",
-			RerankModel:      "qwen3-vl-rerank",
-			TopK:             20,
-			TopN:             5,
-		},
-		Milvus: MilvusConfig{
-			Address:    "localhost:19530",
-			Collection: "api_documents",
-		},
-		Redis: RedisConfig{
-			Address:  "localhost:6379",
-			Password: "",
-			DB:       0,
-		},
+// LoadFromEnv 从环境变量加载配置（替代原 Default() + ApplyEnv()）
+func LoadFromEnv() (Config, error) {
+	cfg := Config{}
+	if err := env.Parse(&cfg); err != nil {
+		return Config{}, err
 	}
-}
-
-func (c *Config) ApplyEnv(lookup LookupEnvFunc) error {
-	if v, ok := lookup("PORT"); ok && v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid PORT: %w", err)
-		}
-		c.Server.Port = n
-	}
-	if v, ok := lookup("AUTH_TOKEN"); ok {
-		c.Server.AuthToken = v
-	}
-	if v, ok := lookup("LLM_API_KEY"); ok {
-		c.LLM.APIKey = v
-	}
-	if v, ok := lookup("LLM_PROVIDER"); ok && v != "" {
-		c.LLM.Provider = v
-	}
-	if v, ok := lookup("LLM_MODEL"); ok && v != "" {
-		c.LLM.Model = v
-	}
-	if v, ok := lookup("LLM_BASE_URL"); ok && v != "" {
-		c.LLM.BaseURL = v
-	}
-	if v, ok := lookup("LLM_MAX_TOKENS"); ok && v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid LLM_MAX_TOKENS: %w", err)
-		}
-		c.LLM.MaxTokens = n
-	}
-	if v, ok := lookup("LLM_TIMEOUT_SECONDS"); ok && v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid LLM_TIMEOUT_SECONDS: %w", err)
-		}
-		c.LLM.TimeoutSeconds = n
-	}
-	if v, ok := lookup("LLM_MAX_RETRIES"); ok && v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid LLM_MAX_RETRIES: %w", err)
-		}
-		c.LLM.MaxRetries = n
-	}
-	if v, ok := lookup("LLM_RETRY_BACKOFF_MS"); ok && v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid LLM_RETRY_BACKOFF_MS: %w", err)
-		}
-		c.LLM.RetryBackoffMS = n
-	}
-	if v, ok := lookup("MILVUS_ADDRESS"); ok && v != "" {
-		c.Milvus.Address = v
-	}
-	if v, ok := lookup("REDIS_ADDRESS"); ok && v != "" {
-		c.Redis.Address = v
-	}
-	if v, ok := lookup("REDIS_PASSWORD"); ok {
-		c.Redis.Password = v
-	}
-	if v, ok := lookup("REDIS_DB"); ok && v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid REDIS_DB: %w", err)
-		}
-		c.Redis.DB = n
-	}
-	if v, ok := lookup("EMBEDDING_API_KEY"); ok && v != "" {
-		c.RAG.EmbeddingAPIKey = v
-	}
-	if v, ok := lookup("EMBEDDING_BASE_URL"); ok && v != "" {
-		c.RAG.EmbeddingBaseURL = v
-	}
-	if v, ok := lookup("EMBEDDING_MODEL"); ok && v != "" {
-		c.RAG.EmbeddingModel = v
-	}
-	if v, ok := lookup("EMBEDDING_DIM"); ok && v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("invalid EMBEDDING_DIM: %w", err)
-		}
-		c.RAG.EmbeddingDim = n
-	}
-	if v, ok := lookup("RERANK_API_KEY"); ok && v != "" {
-		c.RAG.RerankAPIKey = v
-	}
-	if v, ok := lookup("RERANK_BASE_URL"); ok && v != "" {
-		c.RAG.RerankBaseURL = v
-	}
-	if v, ok := lookup("RERANK_MODEL"); ok && v != "" {
-		c.RAG.RerankModel = v
-	}
-	return nil
+	return cfg, nil
 }

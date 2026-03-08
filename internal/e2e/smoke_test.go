@@ -19,7 +19,7 @@ import (
 )
 
 func TestQueryAPISmoke(t *testing.T) {
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	cfg.Server.AuthToken = "test-token"
 
 	kb := tools.NewKnowledgeBaseWithIngestor(knowledge.NewInMemoryIngestor(), rag.NewMemoryStore())

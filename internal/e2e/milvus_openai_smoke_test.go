@@ -21,7 +21,7 @@ import (
 )
 
 func TestQueryAPIMilvusStoreWithOpenAI(t *testing.T) {
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	cfg.Server.AuthToken = "test-token"
 
 	milvus := store.NewInMemoryMilvusClient()

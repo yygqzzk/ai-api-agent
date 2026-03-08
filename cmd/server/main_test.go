@@ -12,7 +12,7 @@ import (
 )
 
 func TestNewLLMClientSelectsOpenAI(t *testing.T) {
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	cfg.LLM.Provider = "openai"
 	cfg.LLM.APIKey = "k1"
 
@@ -23,7 +23,7 @@ func TestNewLLMClientSelectsOpenAI(t *testing.T) {
 }
 
 func TestNewLLMClientFallsBackToRuleBased(t *testing.T) {
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	cfg.LLM.Provider = "openai"
 	cfg.LLM.APIKey = ""
 	cfg.LLM.BaseURL = ""
@@ -42,7 +42,7 @@ func TestNewLLMClientAppliesRetryConfig(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	cfg.LLM.Provider = "openai"
 	cfg.LLM.APIKey = "k1"
 	cfg.LLM.BaseURL = srv.URL

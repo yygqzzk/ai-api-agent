@@ -15,7 +15,7 @@ import (
 )
 
 func TestHealthzAllHealthy(t *testing.T) {
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	cfg.LLM.Provider = "openai"
 
 	checker := newHealthDependencyChecker(cfg, &fakeRedisClient{}, &fakeMilvusClient{}, &fakeLLMClient{healthErr: nil})
@@ -42,7 +42,7 @@ func TestHealthzAllHealthy(t *testing.T) {
 }
 
 func TestHealthzDependencyDown(t *testing.T) {
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	cfg.LLM.Provider = "openai"
 
 	checker := newHealthDependencyChecker(cfg,
@@ -73,7 +73,8 @@ func TestHealthzDependencyDown(t *testing.T) {
 }
 
 func TestHealthzMethodNotAllowed(t *testing.T) {
-	checker := newHealthDependencyChecker(config.Default(), &fakeRedisClient{}, nil, &fakeLLMClient{})
+	cfg, _ := config.LoadFromEnv()
+	checker := newHealthDependencyChecker(cfg, &fakeRedisClient{}, nil, &fakeLLMClient{})
 	handler := newHealthHandler(checker)
 
 	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
@@ -131,7 +132,9 @@ func (f *fakeMilvusClient) Query(_ context.Context, _ string) ([]store.VectorDoc
 	}
 	return []store.VectorDoc{}, nil
 }
-func (f *fakeMilvusClient) Close(_ context.Context) error { return nil }
+func (f *fakeMilvusClient) DeleteByService(_ context.Context, _ string, _ string) error { return nil }
+func (f *fakeMilvusClient) DeleteByIDs(_ context.Context, _ string, _ []string) error   { return nil }
+func (f *fakeMilvusClient) Close(_ context.Context) error                               { return nil }
 
 type fakeLLMClient struct {
 	healthErr error

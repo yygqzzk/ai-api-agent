@@ -29,7 +29,7 @@ func (f *fakeStreamRunner) RunStream(ctx context.Context, query string) <-chan a
 }
 
 func TestSSEStreamingEndToEnd(t *testing.T) {
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	registry := tools.NewRegistry()
 
 	srv := NewServer(cfg, registry, Hooks{}, ServerOptions{})
@@ -80,7 +80,7 @@ func TestSSEStreamingEndToEnd(t *testing.T) {
 }
 
 func TestNonSSERequestStillWorksAsJSON(t *testing.T) {
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	registry := tools.NewRegistry()
 
 	srv := NewServer(cfg, registry, Hooks{}, ServerOptions{})

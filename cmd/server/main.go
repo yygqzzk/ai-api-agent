@@ -33,11 +33,9 @@ import (
 
 // main 根据启动参数执行服务入口。
 func main() {
-	cfg := config.Default()
-	// os.LookupEnv 是标准库读取环境变量的函数，返回 (value, found)。
-	// 这里把函数本身传给 ApplyEnv，测试里就可以替换成自定义实现。
-	if err := cfg.ApplyEnv(os.LookupEnv); err != nil {
-		slog.Error("load env config failed", "error", err)
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		slog.Error("load config failed", "error", err)
 		os.Exit(1)
 	}
 

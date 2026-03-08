@@ -68,7 +68,7 @@ func TestLifecycleHooks(t *testing.T) {
 		onShutdown: false,
 	}
 
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	cfg.Server.AuthToken = "test-token"
 	reg := tools.NewRegistry()
 	if err := reg.Register(&pingTool{}); err != nil {
@@ -103,7 +103,7 @@ func TestLifecycleHooks(t *testing.T) {
 
 func newTestServer(t *testing.T, limit int) *Server {
 	t.Helper()
-	cfg := config.Default()
+	cfg, _ := config.LoadFromEnv()
 	cfg.Server.AuthToken = "test-token"
 	reg := tools.NewRegistry()
 	if err := reg.Register(&pingTool{}); err != nil {
