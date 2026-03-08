@@ -9,10 +9,10 @@ import (
 
 // RerankStore 包装 Store 并添加 rerank 功能
 type RerankStore struct {
-	store         Store
-	rerankClient  rerank.Client
-	enableRerank  bool
-	rerankTopN    int // rerank 后返回的结果数量
+	store        Store
+	rerankClient rerank.Client
+	enableRerank bool
+	rerankTopN   int // rerank 后返回的结果数量
 }
 
 // NewRerankStore 创建带 rerank 功能的 Store
@@ -92,6 +92,15 @@ func (s *RerankStore) Search(ctx context.Context, query string, topK int, servic
 	}
 
 	return reranked, nil
+}
+
+// DeleteByService 删除指定 service 的所有文档块，直接委托给底层 store。
+func (s *RerankStore) DeleteByService(ctx context.Context, service string) error {
+	return s.store.DeleteByService(ctx, service)
+}
+
+func (s *RerankStore) DeleteByIDs(ctx context.Context, ids []string) error {
+	return s.store.DeleteByIDs(ctx, ids)
 }
 
 // Close 关闭存储连接

@@ -12,6 +12,9 @@ type MilvusClient interface {
 	Upsert(ctx context.Context, collection string, docs []VectorDoc) error
 	Search(ctx context.Context, collection string, vector []float32, topK int, filters map[string]string) ([]SearchResult, error)
 	Query(ctx context.Context, collection string) ([]VectorDoc, error)
+	// DeleteByService 删除指定 collection 中属于某个 service 的所有向量文档。
+	DeleteByService(ctx context.Context, collection string, service string) error
+	DeleteByIDs(ctx context.Context, collection string, ids []string) error
 	Close(ctx context.Context) error
 }
 
@@ -38,6 +41,39 @@ type InMemoryMilvusClient struct {
 
 func NewInMemoryMilvusClient() *InMemoryMilvusClient {
 	return &InMemoryMilvusClient{collections: make(map[string]map[string]VectorDoc)}
+}
+
+func (c *InMemoryMilvusClient) DeleteByService(_ context.Context, collection string, service string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	docs, ok := c.collections[collection]
+	if !ok {
+		return nil
+	}
+	for id, doc := range docs {
+		if doc.Service == service {
+			delete(docs, id)
+		}
+	}
+	return nil
+}
+
+func (c *InMemoryMilvusClient) DeleteByIDs(_ context.Context, collection string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	items, ok := c.collections[collection]
+	if !ok {
+		return nil
+	}
+
+	for _, id := range ids {
+		delete(items, id)
+	}
+	return nil
 }
 
 func (c *InMemoryMilvusClient) Upsert(_ context.Context, collection string, docs []VectorDoc) error {

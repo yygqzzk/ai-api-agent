@@ -1,0 +1,258 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1772984269086,
+  "projectRoot": "/Users/yygqzzk/Code/ai-agent-api",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Go",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "go.mod"
+        ]
+      },
+      {
+        "name": "C/C++",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "Makefile"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "go",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "make build",
+    "testCommand": "make test",
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "cmd": {
+      "path": "cmd",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1772984269069,
+      "keyFiles": []
+    },
+    "config": {
+      "path": "config",
+      "purpose": "Configuration files",
+      "fileCount": 1,
+      "lastAccessed": 1772984269069,
+      "keyFiles": [
+        "config.yaml"
+      ]
+    },
+    "deploy": {
+      "path": "deploy",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1772984269070,
+      "keyFiles": [
+        "Dockerfile",
+        "docker-compose.yaml"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 5,
+      "lastAccessed": 1772984269070,
+      "keyFiles": [
+        "COMMENT-GUIDELINES.md",
+        "design.md",
+        "id-diff-optimization.md",
+        "local-setup-guide.md",
+        "resilience-implementation.md"
+      ]
+    },
+    "internal": {
+      "path": "internal",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1772984269070,
+      "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1772984269071,
+      "keyFiles": [
+        "render_sync_api_doc.rb",
+        "start.sh"
+      ]
+    },
+    "skills": {
+      "path": "skills",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1772984269071,
+      "keyFiles": [
+        "auth_flow.yaml",
+        "crud_guide.yaml"
+      ]
+    },
+    "testdata": {
+      "path": "testdata",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1772984269071,
+      "keyFiles": [
+        "petstore.json"
+      ]
+    },
+    "internal/config": {
+      "path": "internal/config",
+      "purpose": "Configuration files",
+      "fileCount": 2,
+      "lastAccessed": 1772984269072,
+      "keyFiles": [
+        "config.go",
+        "config_test.go"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "internal/tools/query_api.go",
+      "accessCount": 2,
+      "lastAccessed": 1772985887340,
+      "type": "file"
+    },
+    {
+      "path": "cmd/server/main.go",
+      "accessCount": 2,
+      "lastAccessed": 1772986658026,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 1,
+      "lastAccessed": 1772984373897,
+      "type": "file"
+    },
+    {
+      "path": "internal/tools/types.go",
+      "accessCount": 1,
+      "lastAccessed": 1772984375169,
+      "type": "file"
+    },
+    {
+      "path": "internal/tools/registry.go",
+      "accessCount": 1,
+      "lastAccessed": 1772984375276,
+      "type": "file"
+    },
+    {
+      "path": "docs/design.md",
+      "accessCount": 1,
+      "lastAccessed": 1772984376438,
+      "type": "file"
+    },
+    {
+      "path": "internal/agent/adaptive_engine.go",
+      "accessCount": 1,
+      "lastAccessed": 1772984385678,
+      "type": "file"
+    },
+    {
+      "path": "internal/agent/engine.go",
+      "accessCount": 1,
+      "lastAccessed": 1772984386539,
+      "type": "file"
+    },
+    {
+      "path": "internal/mcp/server.go",
+      "accessCount": 1,
+      "lastAccessed": 1772986596388,
+      "type": "file"
+    },
+    {
+      "path": "go.mod",
+      "accessCount": 1,
+      "lastAccessed": 1772986617767,
+      "type": "file"
+    },
+    {
+      "path": "internal/mcp/middleware.go",
+      "accessCount": 1,
+      "lastAccessed": 1772986617779,
+      "type": "file"
+    },
+    {
+      "path": "internal/config/config.go",
+      "accessCount": 1,
+      "lastAccessed": 1772986617820,
+      "type": "file"
+    },
+    {
+      "path": "internal/knowledge/ingestor.go",
+      "accessCount": 1,
+      "lastAccessed": 1772986658082,
+      "type": "file"
+    },
+    {
+      "path": "docs/plans/2026-03-09-wanzhi-redesign.md",
+      "accessCount": 1,
+      "lastAccessed": 1772988355502,
+      "type": "file"
+    },
+    {
+      "path": "internal/mcp/hooks.go",
+      "accessCount": 1,
+      "lastAccessed": 1772988492087,
+      "type": "file"
+    },
+    {
+      "path": "internal/mcp/ratelimit.go",
+      "accessCount": 1,
+      "lastAccessed": 1772988493371,
+      "type": "file"
+    },
+    {
+      "path": "internal/mcp/request_id.go",
+      "accessCount": 1,
+      "lastAccessed": 1772988494506,
+      "type": "file"
+    },
+    {
+      "path": "internal/knowledge/models.go",
+      "accessCount": 1,
+      "lastAccessed": 1772988500796,
+      "type": "file"
+    },
+    {
+      "path": "docs/plans/2026-03-09-wanzhi-implementation.md",
+      "accessCount": 1,
+      "lastAccessed": 1772989740605,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

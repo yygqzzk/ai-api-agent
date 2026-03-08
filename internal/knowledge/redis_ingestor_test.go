@@ -145,3 +145,109 @@ func TestRedisIngestor_Chunks(t *testing.T) {
 		t.Fatalf("expected chunk service svc, got %q", chunks[0].Service)
 	}
 }
+
+func TestRedisIngestor_FullReplacement(t *testing.T) {
+	client, cleanup := setupTestRedisClient(t)
+	defer cleanup()
+
+	ingestor := NewRedisIngestor(client)
+
+	// 第一次导入：包含 login 和 register 两个接口
+	doc1 := ParsedSpec{
+		Meta: SpecMeta{
+			Service:  "petstore",
+			Host:     "petstore.swagger.io",
+			BasePath: "/v2",
+			Schemes:  []string{"https"},
+		},
+		Endpoints: []Endpoint{
+			{Service: "petstore", Method: "GET", Path: "/user/login", Summary: "User login"},
+			{Service: "petstore", Method: "POST", Path: "/user/register", Summary: "User register"},
+		},
+	}
+	stats1 := ingestor.UpsertDocument(doc1)
+	if stats1.Endpoints != 2 {
+		t.Fatalf("expected 2 endpoints after first upsert, got %d", stats1.Endpoints)
+	}
+	if stats1.Chunks != 8 {
+		t.Fatalf("expected 8 chunks after first upsert, got %d", stats1.Chunks)
+	}
+
+	// 第二次导入：只包含 login 接口（register 已废弃）
+	doc2 := ParsedSpec{
+		Meta: SpecMeta{
+			Service:  "petstore",
+			Host:     "petstore.swagger.io",
+			BasePath: "/v2",
+			Schemes:  []string{"https"},
+		},
+		Endpoints: []Endpoint{
+			{Service: "petstore", Method: "GET", Path: "/user/login", Summary: "User login"},
+		},
+	}
+	stats2 := ingestor.UpsertDocument(doc2)
+	if stats2.Endpoints != 1 {
+		t.Fatalf("expected 1 endpoint after second upsert, got %d", stats2.Endpoints)
+	}
+	if stats2.Chunks != 4 {
+		t.Fatalf("expected 4 chunks after second upsert, got %d", stats2.Chunks)
+	}
+
+	// 验证：只剩下 login 接口，register 已被删除
+	endpoints := ingestor.Endpoints()
+	if len(endpoints) != 1 {
+		t.Fatalf("expected 1 endpoint after replacement, got %d", len(endpoints))
+	}
+	if endpoints[0].Path != "/user/login" {
+		t.Fatalf("expected /user/login, got %s", endpoints[0].Path)
+	}
+
+	// 验证：chunks 也只包含 login 相关的 4 个块
+	chunks := ingestor.Chunks()
+	if len(chunks) != 4 {
+		t.Fatalf("expected 4 chunks after replacement, got %d", len(chunks))
+	}
+	for _, chunk := range chunks {
+		if chunk.Endpoint != "GET /user/login" {
+			t.Fatalf("expected all chunks belong to GET /user/login, got %s", chunk.Endpoint)
+		}
+	}
+}
+
+func TestRedisIngestor_ChunkIDs(t *testing.T) {
+	client, cleanup := setupTestRedisClient(t)
+	defer cleanup()
+
+	ingestor := NewRedisIngestor(client)
+	ingestor.UpsertDocument(ParsedSpec{
+		Meta: SpecMeta{Service: "petstore"},
+		Endpoints: []Endpoint{
+			{Service: "petstore", Method: "GET", Path: "/user/login", Summary: "User login"},
+			{Service: "petstore", Method: "POST", Path: "/user/register", Summary: "User register"},
+		},
+	})
+
+	ids := ingestor.ChunkIDs("PETSTORE")
+	if len(ids) != 8 {
+		t.Fatalf("expected 8 chunk ids, got %d", len(ids))
+	}
+	want := map[string]bool{
+		"petstore:GET:/user/login:overview":       true,
+		"petstore:GET:/user/login:request":        true,
+		"petstore:GET:/user/login:response":       true,
+		"petstore:GET:/user/login:dependency":     true,
+		"petstore:POST:/user/register:overview":   true,
+		"petstore:POST:/user/register:request":    true,
+		"petstore:POST:/user/register:response":   true,
+		"petstore:POST:/user/register:dependency": true,
+	}
+	for _, id := range ids {
+		if !want[id] {
+			t.Fatalf("unexpected chunk id %s", id)
+		}
+		delete(want, id)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing chunk ids: %v", want)
+	}
+}

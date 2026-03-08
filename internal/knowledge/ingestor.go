@@ -10,6 +10,7 @@ type Ingestor interface {
 	UpsertDocument(doc ParsedSpec) IngestStats
 	Endpoints() []Endpoint
 	Chunks() []Chunk
+	ChunkIDs(service string) []string
 	SpecMeta(service string) (SpecMeta, bool)
 }
 
@@ -75,6 +76,28 @@ func (i *InMemoryIngestor) Chunks() []Chunk {
 	return out
 }
 
+func (i *InMemoryIngestor) ChunkIDs(service string) []string {
+	key := canonicalServiceKey(service)
+	if key == "" {
+		return nil
+	}
+
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	ids := make([]string, 0)
+	for _, chunk := range i.chunks {
+		if canonicalServiceKey(chunk.Service) != key {
+			continue
+		}
+		ids = append(ids, chunk.ID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
+}
+
 func (i *InMemoryIngestor) SpecMeta(service string) (SpecMeta, bool) {
 	key := canonicalServiceKey(service)
 	if key == "" {
@@ -113,6 +136,9 @@ func (i *InMemoryIngestor) rebuildChunksLocked() {
 	i.chunks = chunks
 }
 
+// IMPORTANT: Chunk ID 生成规则不可变更。
+// 格式：{service}:{method}:{path}:{type}
+// 如需变更，必须提供数据迁移方案。
 func buildChunksForEndpoint(ep Endpoint, version string) []Chunk {
 	base := fmt.Sprintf("%s:%s:%s", ep.Service, ep.Method, ep.Path)
 	endpointName := ep.DisplayName()

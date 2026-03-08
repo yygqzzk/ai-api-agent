@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/milvus-io/milvus-sdk-go/v2/client"
@@ -212,6 +213,30 @@ func (c *SDKMilvusClient) Query(ctx context.Context, collection string) ([]Vecto
 		docs = append(docs, doc)
 	}
 	return docs, nil
+}
+
+func (c *SDKMilvusClient) DeleteByService(ctx context.Context, collection string, service string) error {
+	if err := c.ensureCollection(ctx, collection); err != nil {
+		return err
+	}
+	// Milvus 支持通过表达式批量删除；service 字段已在 schema 中定义为 VarChar，可直接用于过滤。
+	expr := fmt.Sprintf(`service == "%s"`, service)
+	return c.client.Delete(ctx, collection, "", expr)
+}
+
+func (c *SDKMilvusClient) DeleteByIDs(ctx context.Context, collection string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := c.ensureCollection(ctx, collection); err != nil {
+		return err
+	}
+
+	quotedIDs := make([]string, len(ids))
+	for i, id := range ids {
+		quotedIDs[i] = fmt.Sprintf(`"%s"`, strings.ReplaceAll(id, `"`, `\\"`))
+	}
+	return c.client.Delete(ctx, collection, "", fmt.Sprintf("id in [%s]", strings.Join(quotedIDs, ",")))
 }
 
 func (c *SDKMilvusClient) Close(_ context.Context) error {

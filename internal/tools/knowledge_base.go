@@ -96,6 +96,33 @@ func (k *KnowledgeBase) upsertEndpoints(ctx context.Context, endpoints []knowled
 func (k *KnowledgeBase) upsertDocument(ctx context.Context, doc knowledge.ParsedSpec) (knowledge.IngestStats, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+
+	service := strings.TrimSpace(doc.Meta.Service)
+	if service == "" && len(doc.Endpoints) > 0 {
+		service = strings.TrimSpace(doc.Endpoints[0].Service)
+	}
+	service = strings.ToLower(service)
+
+	newChunks := rag.BuildChunks(doc.Endpoints, "v1.0.0")
+	newIDs := make([]string, 0, len(newChunks))
+	for _, chunk := range newChunks {
+		newIDs = append(newIDs, chunk.ID)
+	}
+
+	if service != "" {
+		oldIDs := k.ingestor.ChunkIDs(service)
+		if oldIDs == nil {
+			if err := k.engine.DeleteByService(ctx, service); err != nil {
+				return knowledge.IngestStats{}, fmt.Errorf("delete stale vectors for service %q: %w", service, err)
+			}
+		} else {
+			removedIDs := subtract(oldIDs, newIDs)
+			if err := k.engine.DeleteByIDs(ctx, removedIDs); err != nil {
+				return knowledge.IngestStats{}, fmt.Errorf("delete removed vectors for service %q: %w", service, err)
+			}
+		}
+	}
+
 	stats := k.ingestor.UpsertDocument(doc)
 	if err := k.engine.Index(ctx, doc.Endpoints, "v1.0.0"); err != nil {
 		return stats, fmt.Errorf("index endpoints: %w", err)
@@ -146,4 +173,24 @@ func splitEndpoint(endpoint string) (method string, path string) {
 		return "", ""
 	}
 	return strings.ToUpper(parts[0]), parts[1]
+}
+
+func subtract(oldIDs []string, newIDs []string) []string {
+	if len(oldIDs) == 0 {
+		return nil
+	}
+
+	newSet := make(map[string]struct{}, len(newIDs))
+	for _, id := range newIDs {
+		newSet[id] = struct{}{}
+	}
+
+	removed := make([]string, 0)
+	for _, id := range oldIDs {
+		if _, ok := newSet[id]; ok {
+			continue
+		}
+		removed = append(removed, id)
+	}
+	return removed
 }

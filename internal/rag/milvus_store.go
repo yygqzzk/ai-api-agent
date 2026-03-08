@@ -90,6 +90,16 @@ func (s *MilvusStore) Search(ctx context.Context, query string, topK int, servic
 	return scored, nil
 }
 
+// DeleteByService 删除向量库中属于指定 service 的所有文档块，
+// 与 RedisIngestor 的全量替换策略配合，保证 Milvus 和 Redis 两侧数据一致。
+func (s *MilvusStore) DeleteByService(ctx context.Context, service string) error {
+	return s.milvus.DeleteByService(ctx, s.collection, service)
+}
+
+func (s *MilvusStore) DeleteByIDs(ctx context.Context, ids []string) error {
+	return s.milvus.DeleteByIDs(ctx, s.collection, ids)
+}
+
 func (s *MilvusStore) Close(ctx context.Context) error {
 	return s.milvus.Close(ctx)
 }

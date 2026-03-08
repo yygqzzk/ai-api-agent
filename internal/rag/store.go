@@ -82,6 +82,45 @@ func (s *MemoryStore) Search(_ context.Context, query string, topK int, service 
 	return scored[:topK], nil
 }
 
+// DeleteByService 删除属于指定 service 的所有文档块。
+func (s *MemoryStore) DeleteByService(_ context.Context, service string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	filtered := s.chunks[:0]
+	for _, chunk := range s.chunks {
+		if !strings.EqualFold(chunk.Service, service) {
+			filtered = append(filtered, chunk)
+		}
+	}
+	s.chunks = filtered
+	return nil
+}
+
+func (s *MemoryStore) DeleteByIDs(_ context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idSet := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		idSet[id] = struct{}{}
+	}
+
+	filtered := s.chunks[:0]
+	for _, chunk := range s.chunks {
+		if _, ok := idSet[chunk.ID]; ok {
+			continue
+		}
+		filtered = append(filtered, chunk)
+	}
+	s.chunks = filtered
+	return nil
+}
+
 // Close 关闭存储 (内存存储无需清理)
 func (s *MemoryStore) Close(_ context.Context) error {
 	return nil

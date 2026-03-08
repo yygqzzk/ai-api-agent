@@ -26,6 +26,7 @@ import (
 	"ai-agent-api/internal/tools"
 	webhooksvc "ai-agent-api/internal/webhook"
 
+	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -161,19 +162,29 @@ func runServer(cfg config.Config) error {
 		ProcessAsync: true,
 	})
 
-	// http.NewServeMux 返回一个路由分发器，后续通过 Handle 把路径绑定到 handler。
-	rootMux := http.NewServeMux()
-	rootMux.Handle("/mcp", mcpServer.Handler())
-	rootMux.Handle("/healthz", newHealthHandler(healthChecker))
-	// promhttp.HandlerFor 会把 Prometheus 注册表包装成标准 http.Handler，方便直接挂到 /metrics。
-	rootMux.Handle("/metrics", promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{}))
-	rootMux.Handle("/webhook/sync", http.HandlerFunc(webhookHandler.HandleSync))
+	// 使用 Gin 路由
+	gin.SetMode(gin.ReleaseMode)
+	router := gin.New()
+	router.Use(gin.Recovery())
+
+	// MCP 路由组 — 带认证和限流
+	mcpGroup := router.Group("/mcp")
+	mcpGroup.Use(mcp.RequestIDMiddleware())
+	mcpGroup.Use(mcp.AuthMiddleware(cfg.Server.AuthToken))
+	mcpGroup.Use(mcp.RateLimitMiddleware(mcpServer.Limiter()))
+	mcpGroup.Use(mcp.LoggingMiddleware(logger))
+	mcpGroup.POST("", mcpServer.HandleRPC)
+
+	// 公开端点
+	router.GET("/healthz", gin.WrapH(newHealthHandler(healthChecker)))
+	router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{})))
+	router.POST("/webhook/sync", gin.WrapF(webhookHandler.HandleSync))
 
 	// http.Server 是标准库 HTTP 服务对象：
 	// Addr 指监听地址，Handler 是请求入口，ReadHeaderTimeout 用来限制读请求头的最长时间。
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:           rootMux,
+		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second, // 防止 Slowloris 攻击
 	}
 

@@ -13,6 +13,8 @@ import (
 	"ai-agent-api/internal/config"
 	"ai-agent-api/internal/observability"
 	"ai-agent-api/internal/tools"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ServerOptions MCP Server 配置选项
@@ -104,6 +106,84 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // SetStreamRunner 注册 SSE 所需的流式执行器。
 func (s *Server) SetStreamRunner(runner StreamRunner) {
 	s.streamRunner = runner
+}
+
+// Limiter 返回限流器（供 Gin 中间件使用）
+func (s *Server) Limiter() RateLimiter {
+	return s.limiter
+}
+
+// HandleRPC 是 Gin 框架的 RPC 处理器
+func (s *Server) HandleRPC(c *gin.Context) {
+	// 检查是否是 SSE 请求
+	if isSSERequest(c.Request) && s.streamRunner != nil {
+		s.handleSSE(c.Writer, c.Request)
+		return
+	}
+
+	// 解析 JSON-RPC 请求
+	var req rpcRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json body"})
+		return
+	}
+
+	// 设置默认协议版本
+	if req.JSONRPC == "" {
+		req.JSONRPC = "2.0"
+	}
+
+	// 验证 method 字段
+	if req.Method == "" {
+		c.JSON(http.StatusOK, rpcResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error: &rpcError{
+				Code:    -32600,
+				Message: "method is required",
+			},
+		})
+		return
+	}
+
+	// 执行工具调用
+	start := time.Now()
+	if s.hooks.BeforeToolCall != nil {
+		s.hooks.BeforeToolCall(c.Request.Context(), req.Method)
+	}
+
+	result, err := s.registry.Dispatch(c.Request.Context(), req.Method, req.Params)
+	duration := time.Since(start)
+
+	if s.hooks.AfterToolCall != nil {
+		s.hooks.AfterToolCall(c.Request.Context(), req.Method, duration, err)
+	}
+
+	// 记录指标
+	status := "ok"
+	if err != nil {
+		status = "error"
+	}
+	s.metrics.RecordRequest(req.Method, status, duration.Seconds())
+
+	// 返回响应
+	if err != nil {
+		c.JSON(http.StatusOK, rpcResponse{
+			JSONRPC: req.JSONRPC,
+			ID:      req.ID,
+			Error: &rpcError{
+				Code:    -32000,
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, rpcResponse{
+		JSONRPC: req.JSONRPC,
+		ID:      req.ID,
+		Result:  result,
+	})
 }
 
 // Handler 返回 `/mcp` 的 HTTP 处理器。

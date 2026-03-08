@@ -12,6 +12,8 @@ import (
 )
 
 // RedisIngestor 使用 Redis 持久化存储知识库数据。
+// 采用全量替换策略：每次 UpsertDocument 会完全替换该 service 的所有数据，
+// 确保 Redis 中的数据与导入的文档完全一致（包括删除文档中已移除的接口）。
 type RedisIngestor struct {
 	client  store.RedisClient
 	mu      sync.RWMutex
@@ -65,6 +67,9 @@ func (r *RedisIngestor) UpsertDocument(doc ParsedSpec) IngestStats {
 		return IngestStats{}
 	}
 
+	// 全量替换：先删除该 service 的所有旧数据
+	_ = r.client.Del(ctx, endpointsKey(service))
+
 	stats := IngestStats{}
 	for _, ep := range doc.Endpoints {
 		value, err := json.Marshal(ep)
@@ -84,9 +89,9 @@ func (r *RedisIngestor) UpsertDocument(doc ParsedSpec) IngestStats {
 		}
 	}
 
-	serviceEndpoints := r.getServiceEndpoints(ctx, service)
-	chunks := make([]Chunk, 0, len(serviceEndpoints)*4)
-	for _, ep := range serviceEndpoints {
+	// 基于新导入的 endpoints 重建 chunks（而不是从 Redis 读取）
+	chunks := make([]Chunk, 0, len(doc.Endpoints)*4)
+	for _, ep := range doc.Endpoints {
 		chunks = append(chunks, buildChunksForEndpoint(ep, r.version)...)
 	}
 
@@ -105,7 +110,7 @@ func (r *RedisIngestor) UpsertDocument(doc ParsedSpec) IngestStats {
 		}
 	}
 
-	stats.Chunks = r.totalChunksLocked(ctx)
+	stats.Chunks = len(chunks)
 	return stats
 }
 
@@ -119,6 +124,27 @@ func (r *RedisIngestor) Chunks() []Chunk {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.allChunksLocked(context.Background())
+}
+
+func (r *RedisIngestor) ChunkIDs(service string) []string {
+	key := canonicalServiceKey(service)
+	if key == "" {
+		return nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	chunks := r.getServiceChunks(context.Background(), key)
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(chunks))
+	for _, chunk := range chunks {
+		ids = append(ids, chunk.ID)
+	}
+	return ids
 }
 
 func (r *RedisIngestor) SpecMeta(service string) (SpecMeta, bool) {

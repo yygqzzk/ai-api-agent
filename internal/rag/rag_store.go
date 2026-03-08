@@ -19,5 +19,9 @@ type Store interface {
 
 	Search(ctx context.Context, query string, topK int, service string) ([]ScoredChunk, error)
 
+	// DeleteByService 删除指定 service 的所有文档块，配合 Redis 侧的全量替换使用，保证两侧数据一致。
+	DeleteByService(ctx context.Context, service string) error
+	DeleteByIDs(ctx context.Context, ids []string) error
+
 	Close(ctx context.Context) error
 }
