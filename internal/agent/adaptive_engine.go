@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"ai-agent-api/internal/tools"
+	"wanzhi/internal/tools"
 )
 
 type AdaptiveAgentEngineOptions struct {

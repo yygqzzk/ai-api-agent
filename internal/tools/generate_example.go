@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 type GenerateExampleTool struct {

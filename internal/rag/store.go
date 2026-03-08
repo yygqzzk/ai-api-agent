@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 // MemoryStore 使用内存和关键词匹配保存文档块。

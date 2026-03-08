@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"ai-agent-api/internal/agent"
-	"ai-agent-api/internal/config"
-	"ai-agent-api/internal/knowledge"
-	"ai-agent-api/internal/mcp"
-	"ai-agent-api/internal/rag"
-	"ai-agent-api/internal/tools"
+	"wanzhi/internal/agent"
+	"wanzhi/internal/config"
+	"wanzhi/internal/knowledge"
+	"wanzhi/internal/mcp"
+	"wanzhi/internal/rag"
+	"wanzhi/internal/tools"
 )
 
 func TestQueryAPISmoke(t *testing.T) {

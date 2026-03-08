@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"ai-agent-api/internal/knowledge"
-	"ai-agent-api/internal/rag"
+	"wanzhi/internal/knowledge"
+	"wanzhi/internal/rag"
 )
 
 func TestRegistryAndCoreTools(t *testing.T) {

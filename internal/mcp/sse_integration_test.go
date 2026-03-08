@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"ai-agent-api/internal/agent"
-	"ai-agent-api/internal/config"
-	"ai-agent-api/internal/tools"
+	"wanzhi/internal/agent"
+	"wanzhi/internal/config"
+	"wanzhi/internal/tools"
 )
 
 type fakeStreamRunner struct{}

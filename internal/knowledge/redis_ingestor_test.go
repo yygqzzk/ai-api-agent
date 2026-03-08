@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"ai-agent-api/internal/store"
+	"wanzhi/internal/store"
 
 	"github.com/alicebob/miniredis/v2"
 )

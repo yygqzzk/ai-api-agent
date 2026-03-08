@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 func TestServiceIngestFromContentURLAndFile(t *testing.T) {

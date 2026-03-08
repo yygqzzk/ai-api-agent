@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ai-agent-api/internal/tools"
+	"wanzhi/internal/tools"
 )
 
 func TestAdaptiveAgentEngineRunSimpleDelegatesToBaseEngine(t *testing.T) {

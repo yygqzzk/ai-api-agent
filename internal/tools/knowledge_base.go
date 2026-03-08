@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"ai-agent-api/internal/knowledge"
-	"ai-agent-api/internal/rag"
-	"ai-agent-api/internal/store"
+	"wanzhi/internal/knowledge"
+	"wanzhi/internal/rag"
+	"wanzhi/internal/store"
 )
 
 type KnowledgeBase struct {

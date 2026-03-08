@@ -1,6 +1,6 @@
 package agent
 
-import "ai-agent-api/internal/observability"
+import "wanzhi/internal/observability"
 
 // Option 配置 AgentEngine。
 type Option func(*AgentEngine)

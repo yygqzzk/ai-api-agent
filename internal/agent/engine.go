@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-agent-api/internal/observability"
+	"wanzhi/internal/observability"
 	"golang.org/x/sync/errgroup"
 )
 

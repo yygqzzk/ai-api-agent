@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"ai-agent-api/internal/agent"
-	"ai-agent-api/internal/config"
-	"ai-agent-api/internal/store"
+	"wanzhi/internal/agent"
+	"wanzhi/internal/config"
+	"wanzhi/internal/store"
 )
 
 type dependencyHealthChecker struct {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 type BytesIngestor interface {

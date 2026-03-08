@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 func TestMemoryStore_DeleteByIDs(t *testing.T) {

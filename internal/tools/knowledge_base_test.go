@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"ai-agent-api/internal/knowledge"
-	"ai-agent-api/internal/rag"
+	"wanzhi/internal/knowledge"
+	"wanzhi/internal/rag"
 )
 
 func TestSubtract(t *testing.T) {

@@ -1,4 +1,4 @@
-module ai-agent-api
+module wanzhi
 
 go 1.25.0
 

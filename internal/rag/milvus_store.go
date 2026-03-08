@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"ai-agent-api/internal/embedding"
-	"ai-agent-api/internal/knowledge"
-	"ai-agent-api/internal/store"
+	"wanzhi/internal/embedding"
+	"wanzhi/internal/knowledge"
+	"wanzhi/internal/store"
 )
 
 // MilvusStore implements Store backed by a vector database.

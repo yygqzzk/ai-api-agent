@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"ai-agent-api/internal/agent"
-	"ai-agent-api/internal/config"
+	"wanzhi/internal/agent"
+	"wanzhi/internal/config"
 )
 
 func TestNewLLMClientSelectsOpenAI(t *testing.T) {

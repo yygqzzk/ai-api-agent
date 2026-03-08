@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"ai-agent-api/internal/embedding"
-	"ai-agent-api/internal/knowledge"
-	"ai-agent-api/internal/rag"
-	"ai-agent-api/internal/store"
-	"ai-agent-api/internal/tools"
+	"wanzhi/internal/embedding"
+	"wanzhi/internal/knowledge"
+	"wanzhi/internal/rag"
+	"wanzhi/internal/store"
+	"wanzhi/internal/tools"
 )
 
 type recordingMilvusClient struct {

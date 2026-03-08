@@ -3,7 +3,7 @@ package rag
 import (
 	"context"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 // Engine wraps a Store and provides indexing + search.

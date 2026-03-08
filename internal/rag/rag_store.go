@@ -4,7 +4,7 @@ package rag
 import (
 	"context"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 // ScoredChunk 表示带相关性得分的文档块。

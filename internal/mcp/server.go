@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"time"
 
-	"ai-agent-api/internal/agent"
-	"ai-agent-api/internal/config"
-	"ai-agent-api/internal/observability"
-	"ai-agent-api/internal/tools"
+	"wanzhi/internal/agent"
+	"wanzhi/internal/config"
+	"wanzhi/internal/observability"
+	"wanzhi/internal/tools"
 
 	"github.com/gin-gonic/gin"
 )

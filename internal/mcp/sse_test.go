@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ai-agent-api/internal/agent"
+	"wanzhi/internal/agent"
 )
 
 func TestWriteSSEEvent(t *testing.T) {

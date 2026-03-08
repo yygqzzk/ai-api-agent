@@ -11,13 +11,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"ai-agent-api/internal/agent"
-	"ai-agent-api/internal/config"
-	"ai-agent-api/internal/knowledge"
-	"ai-agent-api/internal/mcp"
-	"ai-agent-api/internal/rag"
-	"ai-agent-api/internal/store"
-	"ai-agent-api/internal/tools"
+	"wanzhi/internal/agent"
+	"wanzhi/internal/config"
+	"wanzhi/internal/knowledge"
+	"wanzhi/internal/mcp"
+	"wanzhi/internal/rag"
+	"wanzhi/internal/store"
+	"wanzhi/internal/tools"
 )
 
 func TestQueryAPIMilvusStoreWithOpenAI(t *testing.T) {

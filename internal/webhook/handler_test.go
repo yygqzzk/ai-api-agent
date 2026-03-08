@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"ai-agent-api/internal/ingest"
+	"wanzhi/internal/ingest"
 )
 
 func TestWebhookHandlerAcceptsBearerTokenAndProcessesFiles(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 func BuildChunks(endpoints []knowledge.Endpoint, version string) []knowledge.Chunk {

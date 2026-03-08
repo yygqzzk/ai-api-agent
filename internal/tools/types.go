@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 type Tool interface {

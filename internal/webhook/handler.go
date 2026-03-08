@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"ai-agent-api/internal/ingest"
+	"wanzhi/internal/ingest"
 )
 
 type SyncService interface {

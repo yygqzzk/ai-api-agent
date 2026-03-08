@@ -3,8 +3,8 @@ package rag
 import (
 	"context"
 
-	"ai-agent-api/internal/knowledge"
-	"ai-agent-api/internal/rerank"
+	"wanzhi/internal/knowledge"
+	"wanzhi/internal/rerank"
 )
 
 // RerankStore 包装 Store 并添加 rerank 功能

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"ai-agent-api/internal/knowledge"
+	"wanzhi/internal/knowledge"
 )
 
 type GetAPIDetailTool struct {

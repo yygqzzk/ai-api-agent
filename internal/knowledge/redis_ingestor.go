@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"ai-agent-api/internal/store"
+	"wanzhi/internal/store"
 )
 
 // RedisIngestor 使用 Redis 持久化存储知识库数据。

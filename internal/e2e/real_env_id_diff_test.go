@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"ai-agent-api/internal/config"
-	"ai-agent-api/internal/rag"
-	"ai-agent-api/internal/store"
-	"ai-agent-api/internal/tools"
+	"wanzhi/internal/config"
+	"wanzhi/internal/rag"
+	"wanzhi/internal/store"
+	"wanzhi/internal/tools"
 
 	milvusclient "github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"

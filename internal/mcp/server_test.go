@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"ai-agent-api/internal/config"
-	"ai-agent-api/internal/tools"
+	"wanzhi/internal/config"
+	"wanzhi/internal/tools"
 )
 
 func TestAuthMiddleware(t *testing.T) {

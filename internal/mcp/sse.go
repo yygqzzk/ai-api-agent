@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"ai-agent-api/internal/agent"
+	"wanzhi/internal/agent"
 )
 
 func isSSERequest(r *http.Request) bool {
