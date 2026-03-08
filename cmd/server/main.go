@@ -24,6 +24,7 @@ import (
 	"ai-agent-api/internal/rerank"
 	"ai-agent-api/internal/store"
 	"ai-agent-api/internal/tools"
+	"ai-agent-api/internal/transport"
 	webhooksvc "ai-agent-api/internal/webhook"
 
 	"github.com/gin-gonic/gin"
@@ -179,6 +180,10 @@ func runServer(cfg config.Config) error {
 	router.GET("/healthz", gin.WrapH(newHealthHandler(healthChecker)))
 	router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{})))
 	router.POST("/webhook/sync", gin.WrapF(webhookHandler.HandleSync))
+
+	// Chat SSE 端点
+	chatHandler := transport.NewChatHandler(baseEngine)
+	router.POST("/api/chat", chatHandler.HandleChat)
 
 	// http.Server 是标准库 HTTP 服务对象：
 	// Addr 指监听地址，Handler 是请求入口，ReadHeaderTimeout 用来限制读请求头的最长时间。
