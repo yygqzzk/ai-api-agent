@@ -24,7 +24,7 @@ func buildChunksForEndpoint(ep knowledge.Endpoint, version string) []knowledge.C
 		Service:  ep.Service,
 		Endpoint: endpointName,
 		Type:     "overview",
-		Content:  strings.TrimSpace(ep.Summary),
+		Content:  fmt.Sprintf("%s - %s", endpointName, strings.TrimSpace(ep.Summary)),
 		Version:  version,
 	}
 
@@ -62,31 +62,14 @@ func buildChunksForEndpoint(ep knowledge.Endpoint, version string) []knowledge.C
 		Version:  version,
 	}
 
-	deps := inferDependencies(ep.Path)
 	dependency := knowledge.Chunk{
-		ID:        base + ":dependency",
-		Service:   ep.Service,
-		Endpoint:  endpointName,
-		Type:      "dependency",
-		Content:   strings.Join(deps, ", "),
-		Version:   version,
-		DependsOn: deps,
-	}
-	if dependency.Content == "" {
-		dependency.Content = "no explicit dependency detected"
+		ID:       base + ":dependency",
+		Service:  ep.Service,
+		Endpoint: endpointName,
+		Type:     "dependency",
+		Content:  "接口依赖信息暂不可用",
+		Version:  version,
 	}
 
 	return []knowledge.Chunk{overview, request, response, dependency}
-}
-
-func inferDependencies(path string) []string {
-	lower := strings.ToLower(path)
-	switch {
-	case strings.Contains(lower, "order"):
-		return []string{"GET /inventory", "POST /store/order"}
-	case strings.Contains(lower, "login"):
-		return []string{"GET /user/login"}
-	default:
-		return nil
-	}
 }

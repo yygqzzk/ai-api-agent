@@ -38,6 +38,8 @@ func TestApplyEnvOverrides(t *testing.T) {
 	t.Setenv("LLM_RETRY_BACKOFF_MS", "120")
 	t.Setenv("MILVUS_ADDRESS", "127.0.0.1:19530")
 	t.Setenv("REDIS_ADDRESS", "127.0.0.1:6379")
+	t.Setenv("REDIS_PASSWORD", "redis-pass")
+	t.Setenv("REDIS_DB", "3")
 
 	cfg := Default()
 	if err := cfg.ApplyEnv(os.LookupEnv); err != nil {
@@ -60,6 +62,18 @@ func TestApplyEnvOverrides(t *testing.T) {
 	}
 	if cfg.Redis.Address != "127.0.0.1:6379" {
 		t.Fatalf("expected redis override, got %q", cfg.Redis.Address)
+	}
+	if cfg.Redis.Password != "redis-pass" || cfg.Redis.DB != 3 {
+		t.Fatalf("expected redis password/db overrides, got %+v", cfg.Redis)
+	}
+}
+
+func TestApplyEnvInvalidRedisDB(t *testing.T) {
+	t.Setenv("REDIS_DB", "not-a-number")
+	cfg := Default()
+	err := cfg.ApplyEnv(os.LookupEnv)
+	if err == nil {
+		t.Fatalf("expected invalid REDIS_DB error")
 	}
 }
 

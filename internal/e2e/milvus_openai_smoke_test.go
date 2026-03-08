@@ -13,6 +13,7 @@ import (
 
 	"ai-agent-api/internal/agent"
 	"ai-agent-api/internal/config"
+	"ai-agent-api/internal/knowledge"
 	"ai-agent-api/internal/mcp"
 	"ai-agent-api/internal/rag"
 	"ai-agent-api/internal/store"
@@ -26,13 +27,7 @@ func TestQueryAPIMilvusStoreWithOpenAI(t *testing.T) {
 	milvus := store.NewInMemoryMilvusClient()
 	embedder := &keywordEmbedder{dim: 8}
 	ragStore := rag.NewMilvusStore(milvus, embedder, "api_documents")
-	cache, err := store.NewRedisClient(store.RedisOptions{Mode: "memory"})
-	if err != nil {
-		t.Fatalf("new memory redis failed: %v", err)
-	}
-	t.Cleanup(func() { _ = cache.Close(context.Background()) })
-
-	kb := tools.NewKnowledgeBaseWithStoreAndCache(ragStore, cache)
+	kb := tools.NewKnowledgeBaseWithIngestor(knowledge.NewInMemoryIngestor(), ragStore)
 	petstorePath := filepath.Join("..", "..", "testdata", "petstore.json")
 	if _, err := kb.IngestFile(context.Background(), petstorePath, "petstore"); err != nil {
 		t.Fatalf("ingest failed: %v", err)

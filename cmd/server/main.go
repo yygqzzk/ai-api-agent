@@ -226,9 +226,10 @@ type runtimeStores struct {
 // newKnowledgeBase 创建运行时知识库及其底层依赖。
 func newKnowledgeBase(ctx context.Context, cfg config.Config) (*tools.KnowledgeBase, runtimeStores, func(), error) {
 	cache, err := store.NewRedisClient(store.RedisOptions{
-		Mode:    "redis",
-		Address: cfg.Redis.Address,
-		DB:      cfg.Redis.DB,
+		Mode:     "redis",
+		Address:  cfg.Redis.Address,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
 	})
 	if err != nil {
 		return nil, runtimeStores{}, nil, fmt.Errorf("init redis client failed: %w", err)
@@ -290,7 +291,7 @@ func newKnowledgeBase(ctx context.Context, cfg config.Config) (*tools.KnowledgeB
 
 	ragStore = rag.NewRerankStore(ragStore, rerankClient, cfg.RAG.TopN)
 
-	kb := tools.NewKnowledgeBaseWithStoreAndCache(ragStore, cache)
+	kb := tools.NewKnowledgeBaseWithRedis(cache, ragStore)
 	cleanup := func() {
 		milvusCleanup()
 		_ = cache.Close(context.Background())
@@ -311,7 +312,8 @@ func newLLMClient(cfg config.Config) agent.LLMClient {
 	hasCustomBase := strings.TrimSpace(cfg.LLM.BaseURL) != ""
 
 	// 如果有 API Key 或自定义 BaseURL,使用 OpenAI Compatible 客户端
-	if (provider == "openai" || provider == "openai-compatible") && (hasKey || hasCustomBase) {
+	// 兼容所有遵循 OpenAI API 格式的提供商（bailian/dashscope/deepseek 等）
+	if hasKey || hasCustomBase {
 		timeout := time.Duration(cfg.LLM.TimeoutSeconds) * time.Second
 		if timeout <= 0 {
 			timeout = 30 * time.Second

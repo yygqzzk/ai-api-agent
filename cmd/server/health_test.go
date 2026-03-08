@@ -99,6 +99,22 @@ func (f *fakeRedisClient) Get(_ context.Context, _ string) (string, bool, error)
 func (f *fakeRedisClient) Del(_ context.Context, _ string) error {
 	return f.delErr
 }
+func (f *fakeRedisClient) SAdd(_ context.Context, _ string, _ ...string) error { return nil }
+func (f *fakeRedisClient) SMembers(_ context.Context, _ string) ([]string, error) {
+	return nil, nil
+}
+func (f *fakeRedisClient) HSet(_ context.Context, _ string, _ string, _ string) error { return nil }
+func (f *fakeRedisClient) HGet(_ context.Context, _ string, _ string) (string, bool, error) {
+	return "", false, nil
+}
+func (f *fakeRedisClient) HGetAll(_ context.Context, _ string) (map[string]string, error) {
+	return nil, nil
+}
+func (f *fakeRedisClient) RPush(_ context.Context, _ string, _ ...string) error { return nil }
+func (f *fakeRedisClient) LRange(_ context.Context, _ string, _ int64, _ int64) ([]string, error) {
+	return nil, nil
+}
+func (f *fakeRedisClient) Ping(_ context.Context) error  { return nil }
 func (f *fakeRedisClient) Close(_ context.Context) error { return nil }
 
 type fakeMilvusClient struct {

@@ -2,56 +2,58 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
-	"time"
 
 	"ai-agent-api/internal/knowledge"
+	"ai-agent-api/internal/rag"
 	"ai-agent-api/internal/store"
+
+	"github.com/alicebob/miniredis/v2"
 )
 
-func TestGetEndpointFromCache(t *testing.T) {
-	cache, err := store.NewRedisClient(store.RedisOptions{Mode: "memory"})
+func setupRedisBackedKnowledgeBase(t *testing.T) (*KnowledgeBase, func()) {
+	t.Helper()
+
+	server, err := miniredis.Run()
 	if err != nil {
-		t.Fatalf("new memory cache failed: %v", err)
+		t.Fatalf("start miniredis failed: %v", err)
 	}
-	t.Cleanup(func() { _ = cache.Close(context.Background()) })
 
-	ep := knowledge.Endpoint{Service: "petstore", Method: "GET", Path: "/user/login", Summary: "login"}
-	body, err := json.Marshal(ep)
+	client, err := store.NewRedisClient(store.RedisOptions{
+		Mode:    "redis",
+		Address: server.Addr(),
+	})
 	if err != nil {
-		t.Fatalf("marshal endpoint failed: %v", err)
+		server.Close()
+		t.Fatalf("new redis client failed: %v", err)
 	}
 
-	key := "api:detail:petstore:GET /user/login"
-	if err := cache.Set(context.Background(), key, string(body), time.Hour); err != nil {
-		t.Fatalf("cache set failed: %v", err)
+	kb := NewKnowledgeBaseWithRedis(client, rag.NewMemoryStore())
+	cleanup := func() {
+		_ = client.Close(context.Background())
+		server.Close()
 	}
-
-	kb := NewKnowledgeBaseWithCache(cache)
-	got, ok := kb.GetEndpoint("petstore", "GET /user/login")
-	if !ok {
-		t.Fatalf("expected cache hit")
-	}
-	if got.Path != "/user/login" || got.Method != "GET" {
-		t.Fatalf("unexpected endpoint from cache: %+v", got)
-	}
+	return kb, cleanup
 }
 
-func TestGetEndpointPopulateCache(t *testing.T) {
-	cache, err := store.NewRedisClient(store.RedisOptions{Mode: "memory"})
-	if err != nil {
-		t.Fatalf("new memory cache failed: %v", err)
-	}
-	t.Cleanup(func() { _ = cache.Close(context.Background()) })
+func TestGetEndpointFromRedisIngestor(t *testing.T) {
+	kb, cleanup := setupRedisBackedKnowledgeBase(t)
+	defer cleanup()
 
-	kb := NewKnowledgeBaseWithCache(cache)
-	stats, err := kb.upsertEndpoints(context.Background(), []knowledge.Endpoint{{
-		Service: "petstore",
-		Method:  "GET",
-		Path:    "/user/login",
-		Summary: "login",
-	}})
+	stats, err := kb.upsertDocument(context.Background(), knowledge.ParsedSpec{
+		Meta: knowledge.SpecMeta{
+			Service:  "petstore",
+			Host:     "petstore.swagger.io",
+			BasePath: "/v2",
+			Schemes:  []string{"https"},
+		},
+		Endpoints: []knowledge.Endpoint{{
+			Service: "petstore",
+			Method:  "GET",
+			Path:    "/user/login",
+			Summary: "login",
+		}},
+	})
 	if err != nil {
 		t.Fatalf("upsert endpoints failed: %v", err)
 	}
@@ -59,16 +61,42 @@ func TestGetEndpointPopulateCache(t *testing.T) {
 		t.Fatalf("expected 1 endpoint upserted, got %d", stats.Endpoints)
 	}
 
-	_, ok := kb.GetEndpoint("petstore", "GET /user/login")
+	got, ok := kb.GetEndpoint("petstore", "GET /user/login")
 	if !ok {
 		t.Fatalf("expected endpoint found")
 	}
-
-	v, found, err := cache.Get(context.Background(), "api:detail:petstore:GET /user/login")
-	if err != nil {
-		t.Fatalf("cache get failed: %v", err)
+	if got.Path != "/user/login" || got.Method != "GET" {
+		t.Fatalf("unexpected endpoint: %+v", got)
 	}
-	if !found || v == "" {
-		t.Fatalf("expected populated cache for endpoint detail")
+}
+
+func TestGetSpecMetaFromRedisIngestor(t *testing.T) {
+	kb, cleanup := setupRedisBackedKnowledgeBase(t)
+	defer cleanup()
+
+	_, err := kb.upsertDocument(context.Background(), knowledge.ParsedSpec{
+		Meta: knowledge.SpecMeta{
+			Service:  "petstore",
+			Host:     "petstore.swagger.io",
+			BasePath: "/v2",
+			Schemes:  []string{"https"},
+		},
+		Endpoints: []knowledge.Endpoint{{
+			Service: "petstore",
+			Method:  "GET",
+			Path:    "/user/login",
+			Summary: "login",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("upsert endpoints failed: %v", err)
+	}
+
+	meta, ok := kb.GetSpecMeta("PETSTORE")
+	if !ok {
+		t.Fatalf("expected spec meta found")
+	}
+	if got := meta.URLForPath("/user/login"); got != "https://petstore.swagger.io/v2/user/login" {
+		t.Fatalf("unexpected url from meta: %s", got)
 	}
 }

@@ -42,6 +42,7 @@ func (t *GetAPIDetailTool) Execute(ctx context.Context, args json.RawMessage) (a
 	if !ok {
 		return nil, fmt.Errorf("endpoint not found: %s", req.Endpoint)
 	}
+	spec, _ := t.kb.GetSpecMeta(ep.Service)
 
 	return APIDetailResult{
 		Endpoint: APIDetail{
@@ -53,6 +54,7 @@ func (t *GetAPIDetailTool) Execute(ctx context.Context, args json.RawMessage) (a
 			Tags:        append([]string(nil), ep.Tags...),
 			Parameters:  append([]knowledge.Parameter(nil), ep.Parameters...),
 			Responses:   append([]knowledge.Response(nil), ep.Responses...),
+			Spec:        spec,
 		},
 	}, nil
 }

@@ -2,13 +2,8 @@ name: Sync API Docs to Knowledge Base
 
 on:
   push:
-    branches:
-      - main
-      - develop
-    paths:
-      - 'docs/api/**/*.json'
-      - 'docs/api/**/*.yaml'
-      - 'docs/api/**/*.yml'
+    tags:
+      - '*'
 
 jobs:
   sync:
@@ -19,11 +14,11 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Get changed API docs
-        id: changed-files
+      - name: Collect API docs
+        id: api-files
         shell: bash
         run: |
-          files=$(git diff --name-only HEAD^ HEAD | grep -E '^docs/api/.*\.(json|yaml|yml)$' || true)
+          files=$(find docs/api -type f \( -name '*.json' -o -name '*.yaml' -o -name '*.yml' \) | sort || true)
           {
             echo 'files<<EOF'
             echo "$files"
@@ -31,16 +26,19 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Sync docs to API assistant
-        if: steps.changed-files.outputs.files != ''
+        if: steps.api-files.outputs.files != ''
         env:
           API_ASSISTANT_URL: ${{ secrets.API_ASSISTANT_URL }}
           API_ASSISTANT_TOKEN: ${{ secrets.API_ASSISTANT_TOKEN }}
+          API_DOC_META_OVERRIDES_JSON: ${{ vars.API_DOC_META_OVERRIDES_JSON }}
         shell: bash
         run: |
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             service_name=$(basename "$file")
             service_name=${service_name%.*}
+            rendered_content=$(ruby scripts/render_sync_api_doc.rb "$file" "$service_name")
+            content=$(printf '%s' "$rendered_content" | jq -Rs .)
             curl -fsSL -X POST "$API_ASSISTANT_URL/webhook/sync" \
               -H "Authorization: Bearer $API_ASSISTANT_TOKEN" \
               -H "Content-Type: application/json" \
@@ -54,8 +52,8 @@ jobs:
               "path": "$file",
               "action": "modified",
               "service": "$service_name",
-              "content": $(jq -Rs . < "$file")
+              "content": $content
             }]
           }
           EOF
-          done <<< "${{ steps.changed-files.outputs.files }}"
+          done <<< "${{ steps.api-files.outputs.files }}"

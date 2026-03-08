@@ -37,6 +37,50 @@ func TestBuildChunks(t *testing.T) {
 	}
 }
 
+func TestBuildChunksOverviewIncludesEndpointName(t *testing.T) {
+	endpoints := []knowledge.Endpoint{{
+		Service: "petstore",
+		Method:  "GET",
+		Path:    "/user/login",
+		Summary: "Logs user into the system",
+	}}
+
+	chunks := BuildChunks(endpoints, "v1")
+	for _, chunk := range chunks {
+		if chunk.Type != "overview" {
+			continue
+		}
+		if chunk.Content != "GET /user/login - Logs user into the system" {
+			t.Fatalf("expected overview include endpoint name, got %q", chunk.Content)
+		}
+		return
+	}
+
+	t.Fatalf("expected overview chunk")
+}
+
+func TestBuildChunksDependencyUsesPlaceholder(t *testing.T) {
+	endpoints := []knowledge.Endpoint{{
+		Service: "petstore",
+		Method:  "GET",
+		Path:    "/user/login",
+		Summary: "user login",
+	}}
+
+	chunks := BuildChunks(endpoints, "v1")
+	for _, chunk := range chunks {
+		if chunk.Type != "dependency" {
+			continue
+		}
+		if chunk.Content != "接口依赖信息暂不可用" {
+			t.Fatalf("expected dependency placeholder, got %q", chunk.Content)
+		}
+		return
+	}
+
+	t.Fatalf("expected dependency chunk")
+}
+
 func TestSearchRanking(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()

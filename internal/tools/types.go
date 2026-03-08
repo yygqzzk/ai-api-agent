@@ -46,6 +46,7 @@ type APIDetail struct {
 	Tags        []string              `json:"tags"`
 	Parameters  []knowledge.Parameter `json:"parameters"`
 	Responses   []knowledge.Response  `json:"responses"`
+	Spec        knowledge.SpecMeta    `json:"spec,omitempty"`
 }
 
 type APIDetailResult struct {
@@ -110,6 +111,7 @@ type ParseSwaggerArgs struct {
 
 type ParseSwaggerResult struct {
 	Stats knowledge.IngestStats `json:"stats"`
+	Spec  knowledge.SpecMeta    `json:"spec,omitempty"`
 }
 
 type QueryAPIArgs struct {

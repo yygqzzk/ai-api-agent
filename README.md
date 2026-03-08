@@ -15,7 +15,7 @@
 - `internal/agent`：基础 ReAct 引擎 + Adaptive Agentic RAG 核心模块
 - `internal/tools`：全部工具实现与注册
 - `internal/knowledge`：Swagger 解析与知识模型
-- `internal/rag`：分块与内存检索
+- `internal/rag`：分块与检索引擎（MemoryStore / MilvusStore）
 - `internal/store`：Milvus/Redis 客户端抽象（服务入口默认走真实依赖）
 
 ## 依赖准备
@@ -111,6 +111,31 @@ curl -X POST http://localhost:8080/webhook/sync \
   }'
 ```
 
+## Tag 发布同步
+
+- `.github/workflows/sync-api-docs.yml` 现在只在 **tag push** 时触发，并会全量同步 `docs/api` 下的文档。
+- 工作流会在上传前读取 GitHub Actions Repository Variable `API_DOC_META_OVERRIDES_JSON`，把 `host`、`basePath`、`schemes` 注入文档内容，再通过 `/webhook/sync` 入库。
+- `generate_example` 会优先使用这份文档级元数据拼接真实请求 URL；`get_api_detail` 与 `parse_swagger` 返回值也会带上 `spec`。
+
+变量示例：
+
+```json
+{
+  "default": {
+    "schemes": ["https"]
+  },
+  "user-service": {
+    "host": "api.example.com",
+    "basePath": "/user"
+  },
+  "order-service": {
+    "host": "api.example.com",
+    "basePath": "/order",
+    "schemes": ["https"]
+  }
+}
+```
+
 ## 当前实现说明
 
 - 已实现设计文档中的核心链路与模块分层。
@@ -120,5 +145,5 @@ curl -X POST http://localhost:8080/webhook/sync \
 - OpenAI 客户端支持 429/5xx 自动重试（可配 `LLM_MAX_RETRIES`、`LLM_RETRY_BACKOFF_MS`）与请求超时（`LLM_TIMEOUT_SECONDS`）。
 - 当未提供可用 LLM 配置时，会自动回退到规则式 LLM（便于本地离线演示）。
 - `query_api` 在保持 `summary` 文本兼容的同时，新增结构化 `trace` 数组用于可观测性。
-- 知识库接口详情查询会自动读写 Redis 缓存；服务入口默认使用真实 Redis/Milvus。
+- 知识库元数据与 endpoint 明细持久化在 Redis 中；服务入口默认使用真实 Redis/Milvus。
 - `query_api` 是唯一触发 Agent Loop 的入口，Agent 内部再调度其他工具。

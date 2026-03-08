@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"ai-agent-api/internal/knowledge"
+	"ai-agent-api/internal/rag"
 )
 
 func TestRegistryAndCoreTools(t *testing.T) {
@@ -26,6 +29,12 @@ func TestRegistryAndCoreTools(t *testing.T) {
 	if detailOut.Endpoint.Method != "GET" || detailOut.Endpoint.Path != "/user/login" {
 		t.Fatalf("unexpected api detail endpoint: %+v", detailOut.Endpoint)
 	}
+	if detailOut.Endpoint.Spec.Host != "petstore.swagger.io" {
+		t.Fatalf("expected spec host petstore.swagger.io, got %+v", detailOut.Endpoint.Spec)
+	}
+	if detailOut.Endpoint.Spec.BasePath != "/v2" {
+		t.Fatalf("expected spec basePath /v2, got %+v", detailOut.Endpoint.Spec)
+	}
 
 	exampleOut := dispatch[GenerateExampleResult](t, registry, "generate_example", map[string]any{
 		"service":  "petstore",
@@ -34,6 +43,9 @@ func TestRegistryAndCoreTools(t *testing.T) {
 	})
 	if !strings.Contains(exampleOut.Code, "http.NewRequest") {
 		t.Fatalf("expected go sample include http.NewRequest, got: %s", exampleOut.Code)
+	}
+	if !strings.Contains(exampleOut.Code, "https://petstore.swagger.io/v2/user/login") {
+		t.Fatalf("expected generated example use spec meta url, got: %s", exampleOut.Code)
 	}
 
 	validateOut := dispatch[ValidateParamsResult](t, registry, "validate_params", map[string]any{
@@ -79,6 +91,9 @@ func TestParseSwaggerTool(t *testing.T) {
 	if out.Stats.Chunks == 0 {
 		t.Fatalf("expected chunks > 0")
 	}
+	if out.Spec.Host != "petstore.swagger.io" {
+		t.Fatalf("expected parsed spec host, got %+v", out.Spec)
+	}
 }
 
 func TestRegistryToolDefinitions(t *testing.T) {
@@ -105,7 +120,7 @@ func setupRegistry(t *testing.T) *Registry {
 	petstorePath := filepath.Join("..", "..", "testdata", "petstore.json")
 	skillDir := filepath.Join("..", "..", "skills")
 
-	kb := NewKnowledgeBase()
+	kb := NewKnowledgeBaseWithIngestor(knowledge.NewInMemoryIngestor(), rag.NewMemoryStore())
 	if _, err := kb.IngestFile(context.Background(), petstorePath, "petstore"); err != nil {
 		t.Fatalf("ingest file failed: %v", err)
 	}

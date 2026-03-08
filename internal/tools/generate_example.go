@@ -43,37 +43,39 @@ func (t *GenerateExampleTool) Execute(ctx context.Context, args json.RawMessage)
 	if !ok {
 		return nil, fmt.Errorf("endpoint not found: %s", req.Endpoint)
 	}
+	spec, _ := t.kb.GetSpecMeta(ep.Service)
 	lang := strings.ToLower(strings.TrimSpace(req.Language))
 	if lang == "" {
 		lang = "go"
 	}
 
-	code := buildExampleCode(lang, ep)
+	code := buildExampleCode(lang, ep, spec)
 	return GenerateExampleResult{
 		Language: lang,
 		Code:     code,
 	}, nil
 }
 
-func buildExampleCode(language string, ep knowledge.Endpoint) string {
+func buildExampleCode(language string, ep knowledge.Endpoint, spec knowledge.SpecMeta) string {
+	requestURL := spec.URLForPath(ep.Path)
 	switch language {
 	case "go":
 		return fmt.Sprintf(`client := &http.Client{}
-req, _ := http.NewRequest("%s", "https://petstore.swagger.io/v2%s", nil)
+req, _ := http.NewRequest("%s", "%s", nil)
 resp, err := client.Do(req)
 if err != nil {
     panic(err)
 }
 defer resp.Body.Close()
-`, ep.Method, ep.Path)
+`, ep.Method, requestURL)
 	case "python":
 		return fmt.Sprintf(`import requests
 
-resp = requests.request("%s", "https://petstore.swagger.io/v2%s")
+resp = requests.request("%s", "%s")
 print(resp.status_code)
 print(resp.text)
-`, ep.Method, ep.Path)
+`, ep.Method, requestURL)
 	default:
-		return fmt.Sprintf(`curl -X %s "https://petstore.swagger.io/v2%s"`, ep.Method, ep.Path)
+		return fmt.Sprintf(`curl -X %s "%s"`, ep.Method, requestURL)
 	}
 }

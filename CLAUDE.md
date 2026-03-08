@@ -50,15 +50,15 @@ HTTP POST /webhook/sync
 - **`internal/rag/`** — `Store` interface with `MemoryStore` (keyword matching) and `MilvusStore` (vector search via embedding + Milvus SDK). `RerankStore` wraps any Store to add reranking capability. `Engine` wraps Store with chunking logic.
 - **`internal/embedding/`** — `Client` interface: `NoopClient` (zero vectors for memory mode) and `OpenAIClient` (calls `/v1/embeddings`).
 - **`internal/rerank/`** — `Client` interface: `NoopClient` (no reranking) and `DashScopeClient` (calls Alibaba Cloud rerank API).
-- **`internal/store/`** — `MilvusClient` interface: `InMemoryMilvusClient` (dev/test) and `SDKMilvusClient` (real Milvus). `RedisClient` interface: in-memory or go-redis.
-- **`internal/knowledge/`** — Swagger 2.0 parser → `Endpoint` structs → chunked into 4 types per endpoint (overview, request, response, dependency).
+- **`internal/store/`** — `MilvusClient` interface: `InMemoryMilvusClient` (dev/test) and `SDKMilvusClient` (real Milvus). `RedisClient` wraps go-redis and exposes String/Hash/Set/List ops for runtime persistence.
+- **`internal/knowledge/`** — Swagger 2.0 parser（支持 `deprecated` 属性解析）→ `Endpoint` structs → chunked into 4 types per endpoint (overview, request, response, dependency；其中 dependency 当前为占位文本，不表示真实依赖关系)。
 - **`internal/observability/`** — Prometheus metrics and monitoring.
 - **`internal/e2e/`** — End-to-end integration tests.
 - **`internal/config/`** — Configuration loading from `config/config.yaml` with env var overrides.
 
 ### Runtime Storage
 
-Service runtime defaults to real Redis + Milvus. Start dependencies with `make dev` before `make run`.
+Service runtime requires real Redis + Milvus. Start dependencies with `make dev` before `make run`.
 
 ### Rerank Integration
 

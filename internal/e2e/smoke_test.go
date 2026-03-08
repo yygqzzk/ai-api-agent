@@ -12,7 +12,9 @@ import (
 
 	"ai-agent-api/internal/agent"
 	"ai-agent-api/internal/config"
+	"ai-agent-api/internal/knowledge"
 	"ai-agent-api/internal/mcp"
+	"ai-agent-api/internal/rag"
 	"ai-agent-api/internal/tools"
 )
 
@@ -20,7 +22,7 @@ func TestQueryAPISmoke(t *testing.T) {
 	cfg := config.Default()
 	cfg.Server.AuthToken = "test-token"
 
-	kb := tools.NewKnowledgeBase()
+	kb := tools.NewKnowledgeBaseWithIngestor(knowledge.NewInMemoryIngestor(), rag.NewMemoryStore())
 	petstorePath := filepath.Join("..", "..", "testdata", "petstore.json")
 	if _, err := kb.IngestFile(context.Background(), petstorePath, "petstore"); err != nil {
 		t.Fatalf("ingest failed: %v", err)

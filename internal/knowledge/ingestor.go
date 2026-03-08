@@ -6,46 +6,53 @@ import (
 	"sync"
 )
 
+type Ingestor interface {
+	UpsertDocument(doc ParsedSpec) IngestStats
+	Endpoints() []Endpoint
+	Chunks() []Chunk
+	SpecMeta(service string) (SpecMeta, bool)
+}
+
 type InMemoryIngestor struct {
 	mu        sync.RWMutex
 	endpoints []Endpoint
 	chunks    []Chunk
+	specs     map[string]SpecMeta
 	version   string
 }
 
+var _ Ingestor = (*InMemoryIngestor)(nil)
+
 func NewInMemoryIngestor() *InMemoryIngestor {
-	return &InMemoryIngestor{version: "v1.0.0"}
+	return &InMemoryIngestor{
+		specs:   make(map[string]SpecMeta),
+		version: "v1.0.0",
+	}
 }
 
 func (i *InMemoryIngestor) IngestFile(path string, service string) (IngestStats, error) {
-	endpoints, err := ParseSwaggerFile(path, service)
+	doc, err := ParseSwaggerDocumentFile(path, service)
 	if err != nil {
 		return IngestStats{}, err
 	}
-	return i.Upsert(endpoints), nil
+	return i.UpsertDocument(doc), nil
 }
 
 func (i *InMemoryIngestor) Upsert(endpoints []Endpoint) IngestStats {
+	return i.UpsertDocument(ParsedSpec{Endpoints: endpoints})
+}
+
+func (i *InMemoryIngestor) UpsertDocument(doc ParsedSpec) IngestStats {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	index := make(map[string]int, len(i.endpoints))
-	for idx := range i.endpoints {
-		index[i.endpoints[idx].Key()] = idx
+	i.upsertEndpointsLocked(doc.Endpoints)
+	if meta, ok := normalizeSpecMeta(doc.Meta, doc.Endpoints); ok {
+		i.specs[canonicalServiceKey(meta.Service)] = meta
 	}
-	for _, ep := range endpoints {
-		key := ep.Key()
-		if idx, ok := index[key]; ok {
-			i.endpoints[idx] = ep
-			continue
-		}
-		index[key] = len(i.endpoints)
-		i.endpoints = append(i.endpoints, ep)
-	}
-
 	i.rebuildChunksLocked()
 	return IngestStats{
-		Endpoints: len(endpoints),
+		Endpoints: len(doc.Endpoints),
 		Chunks:    len(i.chunks),
 	}
 }
@@ -66,6 +73,36 @@ func (i *InMemoryIngestor) Chunks() []Chunk {
 	out := make([]Chunk, len(i.chunks))
 	copy(out, i.chunks)
 	return out
+}
+
+func (i *InMemoryIngestor) SpecMeta(service string) (SpecMeta, bool) {
+	key := canonicalServiceKey(service)
+	if key == "" {
+		return SpecMeta{}, false
+	}
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	meta, ok := i.specs[key]
+	if !ok {
+		return SpecMeta{}, false
+	}
+	return cloneSpecMeta(meta), true
+}
+
+func (i *InMemoryIngestor) upsertEndpointsLocked(endpoints []Endpoint) {
+	index := make(map[string]int, len(i.endpoints))
+	for idx := range i.endpoints {
+		index[i.endpoints[idx].Key()] = idx
+	}
+	for _, ep := range endpoints {
+		key := ep.Key()
+		if idx, ok := index[key]; ok {
+			i.endpoints[idx] = ep
+			continue
+		}
+		index[key] = len(i.endpoints)
+		i.endpoints = append(i.endpoints, ep)
+	}
 }
 
 func (i *InMemoryIngestor) rebuildChunksLocked() {
@@ -123,34 +160,35 @@ func buildChunksForEndpoint(ep Endpoint, version string) []Chunk {
 	}
 
 	dependency := Chunk{
-		ID:        base + ":dependency",
-		Service:   ep.Service,
-		Endpoint:  endpointName,
-		Type:      "dependency",
-		Content:   buildDependencyHint(ep),
-		Version:   version,
-		DependsOn: inferDependencies(ep),
+		ID:       base + ":dependency",
+		Service:  ep.Service,
+		Endpoint: endpointName,
+		Type:     "dependency",
+		Content:  "接口依赖信息暂不可用",
+		Version:  version,
 	}
 
 	return []Chunk{overview, request, response, dependency}
 }
 
-func buildDependencyHint(ep Endpoint) string {
-	deps := inferDependencies(ep)
-	if len(deps) == 0 {
-		return "no explicit dependency detected"
+func normalizeSpecMeta(meta SpecMeta, endpoints []Endpoint) (SpecMeta, bool) {
+	service := strings.TrimSpace(meta.Service)
+	if service == "" && len(endpoints) > 0 {
+		service = strings.TrimSpace(endpoints[0].Service)
 	}
-	return "depends on: " + strings.Join(deps, ", ")
+	if service == "" {
+		return SpecMeta{}, false
+	}
+	meta.Service = service
+	meta.Schemes = append([]string(nil), meta.Schemes...)
+	return meta, true
 }
 
-func inferDependencies(ep Endpoint) []string {
-	path := strings.ToLower(ep.Path)
-	switch {
-	case strings.Contains(path, "order"):
-		return []string{"GET /inventory", "POST /order"}
-	case strings.Contains(path, "login"):
-		return []string{"POST /user/login"}
-	default:
-		return nil
-	}
+func cloneSpecMeta(meta SpecMeta) SpecMeta {
+	meta.Schemes = append([]string(nil), meta.Schemes...)
+	return meta
+}
+
+func canonicalServiceKey(service string) string {
+	return strings.ToLower(strings.TrimSpace(service))
 }

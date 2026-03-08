@@ -19,8 +19,11 @@ var validMethods = map[string]bool{
 }
 
 type swaggerDoc struct {
-	Swagger string `json:"swagger"`
-	Info    struct {
+	Swagger  string   `json:"swagger"`
+	Host     string   `json:"host"`
+	BasePath string   `json:"basePath"`
+	Schemes  []string `json:"schemes"`
+	Info     struct {
 		Title   string `json:"title"`
 		Version string `json:"version"`
 	} `json:"info"`
@@ -31,6 +34,7 @@ type swaggerOperation struct {
 	Summary     string             `json:"summary"`
 	Description string             `json:"description"`
 	Tags        []string           `json:"tags"`
+	Deprecated  bool               `json:"deprecated"`
 	Parameters  []swaggerParameter `json:"parameters"`
 	Responses   map[string]struct {
 		Description string `json:"description"`
@@ -49,19 +53,33 @@ type swaggerParameter struct {
 }
 
 func ParseSwaggerFile(path string, service string) ([]Endpoint, error) {
-	// os.ReadFile 会一次性把整个文件内容读入内存。
-	// Swagger 文件通常不大，这种写法比手动 open/read/close 更直接。
+	doc, err := ParseSwaggerDocumentFile(path, service)
+	if err != nil {
+		return nil, err
+	}
+	return doc.Endpoints, nil
+}
+
+func ParseSwaggerDocumentFile(path string, service string) (ParsedSpec, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read swagger file: %w", err)
+		return ParsedSpec{}, fmt.Errorf("read swagger file: %w", err)
 	}
-	return ParseSwaggerBytes(body, service)
+	return ParseSwaggerDocumentBytes(body, service)
 }
 
 func ParseSwaggerBytes(body []byte, service string) ([]Endpoint, error) {
+	doc, err := ParseSwaggerDocumentBytes(body, service)
+	if err != nil {
+		return nil, err
+	}
+	return doc.Endpoints, nil
+}
+
+func ParseSwaggerDocumentBytes(body []byte, service string) (ParsedSpec, error) {
 	var doc swaggerDoc
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("decode swagger: %w", err)
+		return ParsedSpec{}, fmt.Errorf("decode swagger: %w", err)
 	}
 
 	svc := strings.TrimSpace(service)
@@ -79,9 +97,9 @@ func ParseSwaggerBytes(body []byte, service string) ([]Endpoint, error) {
 	for _, path := range paths {
 		ops := doc.Paths[path]
 		methods := make([]string, 0, len(ops))
-		for m := range ops {
-			if validMethods[strings.ToLower(m)] {
-				methods = append(methods, m)
+		for method := range ops {
+			if validMethods[strings.ToLower(method)] {
+				methods = append(methods, method)
 			}
 		}
 		sort.Strings(methods)
@@ -95,6 +113,7 @@ func ParseSwaggerBytes(body []byte, service string) ([]Endpoint, error) {
 				Summary:     strings.TrimSpace(op.Summary),
 				Description: strings.TrimSpace(op.Description),
 				Tags:        append([]string(nil), op.Tags...),
+				Deprecated:  op.Deprecated,
 				Parameters:  make([]Parameter, 0, len(op.Parameters)),
 			}
 
@@ -128,7 +147,16 @@ func ParseSwaggerBytes(body []byte, service string) ([]Endpoint, error) {
 		}
 	}
 
-	return endpoints, nil
+	meta := SpecMeta{
+		Service:  svc,
+		Title:    strings.TrimSpace(doc.Info.Title),
+		Version:  strings.TrimSpace(doc.Info.Version),
+		Host:     strings.TrimSpace(doc.Host),
+		BasePath: normalizePathPrefix(doc.BasePath),
+		Schemes:  normalizeSchemes(doc.Schemes),
+	}
+
+	return ParsedSpec{Meta: meta, Endpoints: endpoints}, nil
 }
 
 func normalizeServiceName(raw string) string {
@@ -138,4 +166,22 @@ func normalizeServiceName(raw string) string {
 	}
 	v = strings.ReplaceAll(v, " ", "-")
 	return v
+}
+
+func normalizeSchemes(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	normalized := make([]string, 0, len(raw))
+	for _, scheme := range raw {
+		v := strings.TrimSpace(strings.ToLower(scheme))
+		if v == "" {
+			continue
+		}
+		normalized = append(normalized, v)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }

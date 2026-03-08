@@ -42,17 +42,18 @@ func (t *ParseSwaggerTool) Execute(ctx context.Context, args json.RawMessage) (a
 	}
 
 	var (
+		doc   knowledge.ParsedSpec
 		stats knowledge.IngestStats
 		err   error
 	)
 	if hasFile {
-		stats, err = t.kb.IngestFile(ctx, req.FilePath, req.Service)
+		doc, stats, err = t.kb.IngestFileDocument(ctx, req.FilePath, req.Service)
 	} else {
-		stats, err = t.kb.IngestURL(ctx, req.URL, req.Service)
+		doc, stats, err = t.kb.IngestURLDocument(ctx, req.URL, req.Service)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	return ParseSwaggerResult{Stats: stats}, nil
+	return ParseSwaggerResult{Stats: stats, Spec: doc.Meta}, nil
 }

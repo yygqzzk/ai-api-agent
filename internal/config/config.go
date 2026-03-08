@@ -55,8 +55,9 @@ type MilvusConfig struct {
 }
 
 type RedisConfig struct {
-	Address string
-	DB      int
+	Address  string
+	Password string
+	DB       int
 }
 
 func Default() Config {
@@ -95,8 +96,9 @@ func Default() Config {
 			Collection: "api_documents",
 		},
 		Redis: RedisConfig{
-			Address: "localhost:6379",
-			DB:      0,
+			Address:  "localhost:6379",
+			Password: "",
+			DB:       0,
 		},
 	}
 }
@@ -157,6 +159,16 @@ func (c *Config) ApplyEnv(lookup LookupEnvFunc) error {
 	}
 	if v, ok := lookup("REDIS_ADDRESS"); ok && v != "" {
 		c.Redis.Address = v
+	}
+	if v, ok := lookup("REDIS_PASSWORD"); ok {
+		c.Redis.Password = v
+	}
+	if v, ok := lookup("REDIS_DB"); ok && v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("invalid REDIS_DB: %w", err)
+		}
+		c.Redis.DB = n
 	}
 	if v, ok := lookup("EMBEDDING_API_KEY"); ok && v != "" {
 		c.RAG.EmbeddingAPIKey = v

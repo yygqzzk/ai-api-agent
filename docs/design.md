@@ -330,7 +330,9 @@ API 文档按**语义结构**分块（非固定长度切分）：
 | `overview` | 接口概要：方法、路径、描述、Tags | POST /user/login - 用户登录接口 |
 | `request` | 请求参数：参数名、类型、是否必填、描述 | username: string (required) |
 | `response` | 响应结构：状态码、字段、错误码 | 200 OK: { token, user_id } |
-| `dependency` | 依赖关系：上下游接口、鉴权要求 | 被依赖: order-service |
+| `dependency` | 占位信息：当前仅保留 chunk 类型，内容固定为“接口依赖信息暂不可用” | 接口依赖信息暂不可用 |
+
+当前系统暂不支持基于知识库的真实接口依赖查询，`dependency` chunk 仅用于保留数据结构兼容性；未来可基于外部配置、调用链或语义分析补充真实依赖信息。Swagger 解析阶段已支持读取 OpenAPI/Swagger 的 `deprecated` 属性，并映射到 `Endpoint.Deprecated` 字段。
 
 #### 3.3.3 Milvus Collection 设计
 
@@ -372,11 +374,11 @@ Swagger/OpenAPI JSON/YAML 文件
          │
          ▼
 ┌────────────────┐
-│ Swagger Parser │ 解析 paths, schemas, tags
+│ Swagger Parser │ 解析 paths, schemas, tags, deprecated
 └────────┬───────┘
          ▼
 ┌────────────────┐
-│  Chunk Builder │ 按语义结构拆分 (概要/参数/响应/依赖)
+│  Chunk Builder │ 按语义结构拆分 (概要/参数/响应/依赖占位)
 └────────┬───────┘
          ▼
 ┌────────────────┐
