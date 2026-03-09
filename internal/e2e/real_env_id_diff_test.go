@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"wanzhi/internal/config"
-	"wanzhi/internal/rag"
-	"wanzhi/internal/store"
-	"wanzhi/internal/tools"
+	"wanzhi/internal/domain/rag"
+	"wanzhi/internal/infra/milvus"
+	"wanzhi/internal/infra/redis"
+	"wanzhi/internal/domain/tool"
 
 	milvusclient "github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/milvus-io/milvus-sdk-go/v2/entity"
@@ -29,7 +30,7 @@ func TestKnowledgeBaseRedisMilvusIDDiffWithRealEnv(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	redisClient, err := store.NewRedisClient(store.RedisOptions{
+	redisClient, err := redis.NewRedisClient(redis.RedisOptions{
 		Mode:     "redis",
 		Address:  cfg.Redis.Address,
 		Password: cfg.Redis.Password,
@@ -40,15 +41,15 @@ func TestKnowledgeBaseRedisMilvusIDDiffWithRealEnv(t *testing.T) {
 	}
 	defer func() { _ = redisClient.Close(ctx) }()
 
-	milvusBase, err := store.NewSDKMilvusClient(ctx, cfg.Milvus.Address, cfg.RAG.EmbeddingDim)
+	milvusBase, err := milvus.NewSDKMilvusClient(ctx, cfg.Milvus.Address, cfg.RAG.EmbeddingDim)
 	if err != nil {
 		t.Fatalf("new milvus client failed: %v", err)
 	}
 	defer func() { _ = milvusBase.Close(ctx) }()
 
 	milvusReal := &recordingMilvusProxy{base: milvusBase}
-	ragStore := rag.NewMilvusStore(milvusReal, &keywordEmbedder{dim: cfg.RAG.EmbeddingDim}, cfg.Milvus.Collection)
-	kb := tools.NewKnowledgeBaseWithRedis(redisClient, ragStore)
+	ingestor := redis.NewRedisIngestor(redisClient)
+	kb := tool.NewKnowledgeBaseWithStores(ingestor, rag.NewMemoryStore())
 
 	service := fmt.Sprintf("id-diff-real-e2e-%d", time.Now().UnixNano())
 	cleanupRealEnvArtifacts(t, ctx, redisClient, milvusReal, cfg.Milvus.Collection, service)
@@ -99,31 +100,31 @@ func TestKnowledgeBaseRedisMilvusIDDiffWithRealEnv(t *testing.T) {
 		}
 	}
 
-	if _, ok := kb.GetEndpoint(service, "GET /user/login"); !ok {
-		t.Fatalf("expected login endpoint still exists in redis")
+	if _, err := kb.GetEndpoint(ctx, service, "GET", "/user/login"); err != nil {
+		t.Fatalf("expected login endpoint still exists in redis: %v", err)
 	}
-	if _, ok := kb.GetEndpoint(service, "POST /user/register"); ok {
+	if _, err := kb.GetEndpoint(ctx, service, "POST", "/user/register"); err == nil {
 		t.Fatalf("expected register endpoint removed from redis")
 	}
 }
 
 type recordingMilvusProxy struct {
-	base                 store.MilvusClient
+	base                 milvus.MilvusClient
 	deleteByServiceCalls int
 	deletedIDs           []string
 }
 
-var _ store.MilvusClient = (*recordingMilvusProxy)(nil)
+var _ milvus.MilvusClient = (*recordingMilvusProxy)(nil)
 
-func (c *recordingMilvusProxy) Upsert(ctx context.Context, collection string, docs []store.VectorDoc) error {
+func (c *recordingMilvusProxy) Upsert(ctx context.Context, collection string, docs []milvus.VectorDoc) error {
 	return c.base.Upsert(ctx, collection, docs)
 }
 
-func (c *recordingMilvusProxy) Search(ctx context.Context, collection string, vector []float32, topK int, filters map[string]string) ([]store.SearchResult, error) {
+func (c *recordingMilvusProxy) Search(ctx context.Context, collection string, vector []float32, topK int, filters map[string]string) ([]milvus.SearchResult, error) {
 	return c.base.Search(ctx, collection, vector, topK, filters)
 }
 
-func (c *recordingMilvusProxy) Query(ctx context.Context, collection string) ([]store.VectorDoc, error) {
+func (c *recordingMilvusProxy) Query(ctx context.Context, collection string) ([]milvus.VectorDoc, error) {
 	return c.base.Query(ctx, collection)
 }
 
@@ -141,9 +142,9 @@ func (c *recordingMilvusProxy) Close(ctx context.Context) error {
 	return c.base.Close(ctx)
 }
 
-func cleanupRealEnvArtifacts(t *testing.T, ctx context.Context, redisClient store.RedisClient, milvus store.MilvusClient, collection string, service string) {
+func cleanupRealEnvArtifacts(t *testing.T, ctx context.Context, redisClient redis.RedisClient, milvusClient milvus.MilvusClient, collection string, service string) {
 	t.Helper()
-	_ = milvus.DeleteByService(ctx, collection, service)
+	_ = milvusClient.DeleteByService(ctx, collection, service)
 	_ = redisClient.Del(ctx, fmt.Sprintf("kb:endpoints:%s", strings.ToLower(service)))
 	_ = redisClient.Del(ctx, fmt.Sprintf("kb:chunks:%s", strings.ToLower(service)))
 	_ = redisClient.Del(ctx, fmt.Sprintf("kb:specs:%s", strings.ToLower(service)))

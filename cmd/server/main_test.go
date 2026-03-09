@@ -7,8 +7,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"wanzhi/internal/agent"
+	"wanzhi/internal/domain/agent"
 	"wanzhi/internal/config"
+	"wanzhi/internal/infra/llm"
 )
 
 func TestNewLLMClientSelectsOpenAI(t *testing.T) {
@@ -17,7 +18,7 @@ func TestNewLLMClientSelectsOpenAI(t *testing.T) {
 	cfg.LLM.APIKey = "k1"
 
 	client := newLLMClient(cfg)
-	if _, ok := client.(*agent.OpenAICompatibleLLMClient); !ok {
+	if _, ok := client.(*llm.OpenAICompatibleLLMClient); !ok {
 		t.Fatalf("expected OpenAICompatibleLLMClient, got %T", client)
 	}
 }
@@ -29,7 +30,7 @@ func TestNewLLMClientFallsBackToRuleBased(t *testing.T) {
 	cfg.LLM.BaseURL = ""
 
 	client := newLLMClient(cfg)
-	if _, ok := client.(*agent.RuleBasedLLMClient); !ok {
+	if _, ok := client.(*llm.RuleBasedLLMClient); !ok {
 		t.Fatalf("expected RuleBasedLLMClient, got %T", client)
 	}
 }
@@ -50,7 +51,7 @@ func TestNewLLMClientAppliesRetryConfig(t *testing.T) {
 	cfg.LLM.RetryBackoffMS = 1
 
 	client := newLLMClient(cfg)
-	openaiClient, ok := client.(*agent.OpenAICompatibleLLMClient)
+	openaiClient, ok := client.(*llm.OpenAICompatibleLLMClient)
 	if !ok {
 		t.Fatalf("expected OpenAICompatibleLLMClient, got %T", client)
 	}

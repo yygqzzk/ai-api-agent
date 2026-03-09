@@ -10,36 +10,37 @@ import (
 	"strings"
 	"testing"
 
-	"wanzhi/internal/agent"
+	"wanzhi/internal/domain/agent"
 	"wanzhi/internal/config"
-	"wanzhi/internal/knowledge"
-	"wanzhi/internal/mcp"
-	"wanzhi/internal/rag"
-	"wanzhi/internal/tools"
+	"wanzhi/internal/domain/knowledge"
+	"wanzhi/internal/transport"
+	"wanzhi/internal/domain/rag"
+	llm2 "wanzhi/internal/infra/llm"
+	"wanzhi/internal/domain/tool"
 )
 
 func TestQueryAPISmoke(t *testing.T) {
 	cfg, _ := config.LoadFromEnv()
 	cfg.Server.AuthToken = "test-token"
 
-	kb := tools.NewKnowledgeBaseWithIngestor(knowledge.NewInMemoryIngestor(), rag.NewMemoryStore())
+	kb := tool.NewKnowledgeBaseWithStores(knowledge.NewMemoryIngestor(), rag.NewMemoryStore())
 	petstorePath := filepath.Join("..", "..", "testdata", "petstore.json")
-	if _, err := kb.IngestFile(context.Background(), petstorePath, "petstore"); err != nil {
+	if _, _, err := kb.IngestFileDocument(context.Background(), petstorePath, "petstore"); err != nil {
 		t.Fatalf("ingest failed: %v", err)
 	}
 
-	registry := tools.NewRegistry()
+	registry := tool.NewRegistry()
 	skillDir := filepath.Join("..", "..", "skills")
-	if err := tools.RegisterDefaultTools(registry, kb, skillDir); err != nil {
+	if err := tool.RegisterDefaultTools(registry, kb, skillDir); err != nil {
 		t.Fatalf("register default tools failed: %v", err)
 	}
 
-	engine := agent.NewAgentEngine(agent.NewRuleBasedLLMClient(), registry, agent.WithMaxSteps(10))
-	if err := tools.RegisterQueryTool(registry, engine); err != nil {
+	engine := agent.NewAgentEngine(llm2.NewRuleBasedLLMClient(), registry, agent.WithMaxSteps(10))
+	if err := tool.RegisterQueryTool(registry, engine); err != nil {
 		t.Fatalf("register query tool failed: %v", err)
 	}
 
-	srv := mcp.NewServer(cfg, registry, mcp.Hooks{}, mcp.ServerOptions{RateLimitPerMinute: 10})
+	srv := transport.NewServer(cfg, registry, transport.Hooks{}, transport.ServerOptions{RateLimitPerMinute: 10})
 	if err := srv.Init(context.Background()); err != nil {
 		t.Fatalf("server init failed: %v", err)
 	}

@@ -7,15 +7,16 @@ import (
 	"net/http"
 	"time"
 
-	"wanzhi/internal/agent"
+	"wanzhi/internal/domain/agent"
 	"wanzhi/internal/config"
-	"wanzhi/internal/store"
+	"wanzhi/internal/infra/redis"
+	inframsg "wanzhi/internal/infra/milvus"
 )
 
 type dependencyHealthChecker struct {
 	cfg    config.Config
-	redis  store.RedisClient
-	milvus store.MilvusClient
+	redis  redis.RedisClient
+	milvus inframsg.MilvusClient
 	llm    agent.LLMClient
 }
 
@@ -30,7 +31,7 @@ type healthzCheck struct {
 	Message string `json:"message,omitempty"`
 }
 
-func newHealthDependencyChecker(cfg config.Config, redis store.RedisClient, milvus store.MilvusClient, llm agent.LLMClient) *dependencyHealthChecker {
+func newHealthDependencyChecker(cfg config.Config, redis redis.RedisClient, milvus inframsg.MilvusClient, llm agent.LLMClient) *dependencyHealthChecker {
 	return &dependencyHealthChecker{
 		cfg:    cfg,
 		redis:  redis,

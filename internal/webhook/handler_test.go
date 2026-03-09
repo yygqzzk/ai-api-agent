@@ -7,12 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"wanzhi/internal/ingest"
 )
 
 func TestWebhookHandlerAcceptsBearerTokenAndProcessesFiles(t *testing.T) {
-	service := &stubSyncService{results: []ingest.Result{{File: "user-service.json", Service: "user-service", Status: "success"}}}
+	service := &stubSyncService{results: []Result{{Path: "user-service.json", Service: "user-service"}}}
 	handler := NewHandler(service, HandlerOptions{BearerToken: "demo-token", ProcessAsync: false})
 
 	body := mustJSON(t, map[string]any{
@@ -60,15 +58,15 @@ func TestWebhookHandlerRejectsUnauthorizedRequest(t *testing.T) {
 }
 
 type stubSyncService struct {
-	calls   [][]ingest.SyncFile
-	results []ingest.Result
+	calls   [][]SyncFile
+	results []Result
 	err     error
 }
 
-func (s *stubSyncService) SyncFiles(_ context.Context, files []ingest.SyncFile) ([]ingest.Result, error) {
-	cloned := append([]ingest.SyncFile(nil), files...)
+func (s *stubSyncService) SyncFiles(_ context.Context, files []SyncFile) ([]Result, error) {
+	cloned := append([]SyncFile(nil), files...)
 	s.calls = append(s.calls, cloned)
-	return append([]ingest.Result(nil), s.results...), s.err
+	return append([]Result(nil), s.results...), s.err
 }
 
 func mustJSON(t *testing.T, v any) []byte {

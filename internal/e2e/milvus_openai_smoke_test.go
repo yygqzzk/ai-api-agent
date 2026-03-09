@@ -11,31 +11,29 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"wanzhi/internal/agent"
+	"wanzhi/internal/domain/agent"
 	"wanzhi/internal/config"
-	"wanzhi/internal/knowledge"
-	"wanzhi/internal/mcp"
-	"wanzhi/internal/rag"
-	"wanzhi/internal/store"
-	"wanzhi/internal/tools"
+	"wanzhi/internal/domain/knowledge"
+	"wanzhi/internal/transport"
+	"wanzhi/internal/domain/rag"
+	llm2 "wanzhi/internal/infra/llm"
+	"wanzhi/internal/domain/tool"
 )
 
 func TestQueryAPIMilvusStoreWithOpenAI(t *testing.T) {
 	cfg, _ := config.LoadFromEnv()
 	cfg.Server.AuthToken = "test-token"
 
-	milvus := store.NewInMemoryMilvusClient()
-	embedder := &keywordEmbedder{dim: 8}
-	ragStore := rag.NewMilvusStore(milvus, embedder, "api_documents")
-	kb := tools.NewKnowledgeBaseWithIngestor(knowledge.NewInMemoryIngestor(), ragStore)
+	ragStore := rag.NewMemoryStore()
+	kb := tool.NewKnowledgeBaseWithStores(knowledge.NewMemoryIngestor(), ragStore)
 	petstorePath := filepath.Join("..", "..", "testdata", "petstore.json")
-	if _, err := kb.IngestFile(context.Background(), petstorePath, "petstore"); err != nil {
+	if _, _, err := kb.IngestFileDocument(context.Background(), petstorePath, "petstore"); err != nil {
 		t.Fatalf("ingest failed: %v", err)
 	}
 
-	registry := tools.NewRegistry()
+	registry := tool.NewRegistry()
 	skillDir := filepath.Join("..", "..", "skills")
-	if err := tools.RegisterDefaultTools(registry, kb, skillDir); err != nil {
+	if err := tool.RegisterDefaultTools(registry, kb, skillDir); err != nil {
 		t.Fatalf("register default tools failed: %v", err)
 	}
 
@@ -57,7 +55,7 @@ func TestQueryAPIMilvusStoreWithOpenAI(t *testing.T) {
         "type": "function",
         "function": {
           "name": "search_api",
-          "arguments": "{\"query\":\"登录\",\"top_k\":3,\"service\":\"petstore\"}"
+          "arguments": "{\"query\":\"login\",\"top_k\":3,\"service\":\"petstore\"}"
         }
       }]
     }
@@ -87,7 +85,7 @@ func TestQueryAPIMilvusStoreWithOpenAI(t *testing.T) {
 	}))
 	defer openaiSrv.Close()
 
-	llmClient := agent.NewOpenAICompatibleLLMClient(agent.OpenAICompatibleLLMConfig{
+	llmClient := llm2.NewOpenAICompatibleLLMClient(llm2.OpenAICompatibleLLMConfig{
 		APIKey:      "k1",
 		BaseURL:     openaiSrv.URL,
 		Model:       "gpt-4o-mini",
@@ -97,11 +95,11 @@ func TestQueryAPIMilvusStoreWithOpenAI(t *testing.T) {
 
 	engine := agent.NewAgentEngine(llmClient, registry, agent.WithMaxSteps(8))
 	engine.SetToolCatalog(toAgentDefs(registry.ToolDefinitions()))
-	if err := tools.RegisterQueryTool(registry, engine); err != nil {
+	if err := tool.RegisterQueryTool(registry, engine); err != nil {
 		t.Fatalf("register query tool failed: %v", err)
 	}
 
-	srv := mcp.NewServer(cfg, registry, mcp.Hooks{}, mcp.ServerOptions{RateLimitPerMinute: 10})
+	srv := transport.NewServer(cfg, registry, transport.Hooks{}, transport.ServerOptions{RateLimitPerMinute: 10})
 	if err := srv.Init(context.Background()); err != nil {
 		t.Fatalf("server init failed: %v", err)
 	}
@@ -177,7 +175,7 @@ func (e *keywordEmbedder) Dimension() int {
 	return e.dim
 }
 
-func toAgentDefs(defs []tools.ToolDefinition) []agent.ToolDefinition {
+func toAgentDefs(defs []tool.ToolDefinition) []agent.ToolDefinition {
 	out := make([]agent.ToolDefinition, 0, len(defs))
 	for _, d := range defs {
 		out = append(out, agent.ToolDefinition{

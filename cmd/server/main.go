@@ -14,18 +14,16 @@ import (
 	"syscall"
 	"time"
 
-	"wanzhi/internal/agent"
+	"wanzhi/internal/domain/agent"
 	"wanzhi/internal/config"
-	"wanzhi/internal/embedding"
-	ingestsvc "wanzhi/internal/ingest"
-	"wanzhi/internal/mcp"
-	"wanzhi/internal/observability"
-	"wanzhi/internal/rag"
-	"wanzhi/internal/rerank"
-	"wanzhi/internal/store"
-	"wanzhi/internal/tools"
+	"wanzhi/internal/domain/rag"
+	"wanzhi/internal/domain/tool"
+	"wanzhi/internal/infra/llm"
+	"wanzhi/internal/infra/redis"
+	inframsg "wanzhi/internal/infra/milvus"
 	"wanzhi/internal/transport"
-	webhooksvc "wanzhi/internal/webhook"
+	"wanzhi/internal/observability"
+	"wanzhi/internal/webhook"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
@@ -90,14 +88,14 @@ func runServer(cfg config.Config) error {
 	defaultPetstore := filepath.Join("testdata", "petstore.json")
 	// os.Stat 返回文件元信息；这里只是借它判断文件是否存在。
 	if _, err := os.Stat(defaultPetstore); err == nil {
-		if _, ingestErr := kb.IngestFile(ctx, defaultPetstore, "petstore"); ingestErr != nil {
+		if _, _, ingestErr := kb.IngestFileDocument(ctx, defaultPetstore, "petstore"); ingestErr != nil {
 			return fmt.Errorf("bootstrap ingest default petstore failed: %w", ingestErr)
 		}
 		logger.Info("default swagger loaded", "path", defaultPetstore)
 	}
 
-	registry := tools.NewRegistry()
-	if err := tools.RegisterDefaultTools(registry, kb, "skills"); err != nil {
+	registry := tool.NewRegistry()
+	if err := tool.RegisterDefaultTools(registry, kb, "skills"); err != nil {
 		return fmt.Errorf("register default tools: %w", err)
 	}
 
@@ -118,11 +116,11 @@ func runServer(cfg config.Config) error {
 		QualityThreshold: 0.7,
 	})
 
-	if err := tools.RegisterQueryTool(registry, adaptiveEngine); err != nil {
+	if err := tool.RegisterQueryTool(registry, adaptiveEngine); err != nil {
 		return fmt.Errorf("register query_api tool: %w", err)
 	}
 
-	hooks := mcp.Hooks{
+	hooks := transport.Hooks{
 		OnInit: func(ctx context.Context) error {
 			logger.Info("mcp server init completed")
 			return nil
@@ -143,7 +141,7 @@ func runServer(cfg config.Config) error {
 		},
 	}
 
-	mcpServer := mcp.NewServer(cfg, registry, hooks, mcp.ServerOptions{
+	mcpServer := transport.NewServer(cfg, registry, hooks, transport.ServerOptions{
 		RateLimitPerMinute: 120,
 		Metrics:            metrics,
 		Logger:             logger,
@@ -154,8 +152,9 @@ func runServer(cfg config.Config) error {
 	}
 
 	healthChecker := newHealthDependencyChecker(cfg, stores.cache, stores.milvus, llmClient)
-	ingestService := ingestsvc.NewService(kb, &http.Client{Timeout: 30 * time.Second})
-	webhookHandler := webhooksvc.NewHandler(ingestService, webhooksvc.HandlerOptions{
+	ingestor := redis.NewRedisIngestor(stores.cache)
+	syncService := webhook.NewIngestorAdapter(ingestor)
+	webhookHandler := webhook.NewHandler(syncService, webhook.HandlerOptions{
 		// os.Getenv 只返回字符串本身；如果变量不存在，会得到空字符串。
 		// 这里适合读取“可选配置”，因为空值本身就代表未配置。
 		Secret:       os.Getenv("WEBHOOK_SECRET"),
@@ -170,10 +169,10 @@ func runServer(cfg config.Config) error {
 
 	// MCP 路由组 — 带认证和限流
 	mcpGroup := router.Group("/mcp")
-	mcpGroup.Use(mcp.RequestIDMiddleware())
-	mcpGroup.Use(mcp.AuthMiddleware(cfg.Server.AuthToken))
-	mcpGroup.Use(mcp.RateLimitMiddleware(mcpServer.Limiter()))
-	mcpGroup.Use(mcp.LoggingMiddleware(logger))
+	mcpGroup.Use(transport.RequestIDMiddleware())
+	mcpGroup.Use(transport.AuthMiddleware(cfg.Server.AuthToken))
+	mcpGroup.Use(transport.RateLimitMiddleware(mcpServer.Limiter()))
+	mcpGroup.Use(transport.LoggingMiddleware(logger))
 	mcpGroup.POST("", mcpServer.HandleRPC)
 
 	// 公开端点
@@ -233,13 +232,13 @@ func runServer(cfg config.Config) error {
 // runtimeStores 运行时存储依赖
 // 用于健康检查和资源清理
 type runtimeStores struct {
-	cache  store.RedisClient  // Redis 缓存客户端
-	milvus store.MilvusClient // Milvus 向量数据库客户端
+	cache  redis.RedisClient  // Redis 缓存客户端
+	milvus inframsg.MilvusClient // Milvus 向量数据库客户端（接口类型）
 }
 
 // newKnowledgeBase 创建运行时知识库及其底层依赖。
-func newKnowledgeBase(ctx context.Context, cfg config.Config) (*tools.KnowledgeBase, runtimeStores, func(), error) {
-	cache, err := store.NewRedisClient(store.RedisOptions{
+func newKnowledgeBase(ctx context.Context, cfg config.Config) (*tool.KnowledgeBase, runtimeStores, func(), error) {
+	cache, err := redis.NewRedisClient(redis.RedisOptions{
 		Mode:     "redis",
 		Address:  cfg.Redis.Address,
 		Password: cfg.Redis.Password,
@@ -249,65 +248,18 @@ func newKnowledgeBase(ctx context.Context, cfg config.Config) (*tools.KnowledgeB
 		return nil, runtimeStores{}, nil, fmt.Errorf("init redis client failed: %w", err)
 	}
 
-	var ragStore rag.Store
-	var milvusClient store.MilvusClient
-	var milvusCleanup func()
+	// TODO: Implement Milvus and Rerank adapters for domain/rag.Store
+	// For now, use MemoryStore from domain/rag package
+	ragStore := rag.NewMemoryStore()
 
-	// 使用真实 Milvus + Embedding 组件；本地通过 make dev 启动依赖。
-	embeddingAPIKey := cfg.RAG.EmbeddingAPIKey
-	if embeddingAPIKey == "" {
-		embeddingAPIKey = cfg.LLM.APIKey
-	}
-	embeddingBaseURL := cfg.RAG.EmbeddingBaseURL
-	if embeddingBaseURL == "" {
-		embeddingBaseURL = cfg.LLM.BaseURL
-	}
-	embedder := embedding.NewOpenAIClient(
-		embeddingAPIKey,
-		embeddingBaseURL,
-		cfg.RAG.EmbeddingModel,
-		cfg.RAG.EmbeddingDim,
+	var milvusClient inframsg.MilvusClient
+
+	kb := tool.NewKnowledgeBaseWithStores(
+		redis.NewRedisIngestor(cache),
+		ragStore,
 	)
-	sdkMilvusClient, err := store.NewSDKMilvusClient(ctx, cfg.Milvus.Address, cfg.RAG.EmbeddingDim)
-	if err != nil {
-		_ = cache.Close(context.Background())
-		return nil, runtimeStores{}, nil, fmt.Errorf("init milvus client failed: %w", err)
-	}
-	ragStore = rag.NewMilvusStore(sdkMilvusClient, embedder, cfg.Milvus.Collection)
-	milvusClient = sdkMilvusClient
-	milvusCleanup = func() {
-		_ = ragStore.Close(context.Background())
-	}
 
-	var rerankClient rerank.Client
-	rerankAPIKey := cfg.RAG.RerankAPIKey
-	if rerankAPIKey == "" {
-		rerankAPIKey = cfg.RAG.EmbeddingAPIKey
-	}
-	if rerankAPIKey == "" {
-		rerankAPIKey = cfg.LLM.APIKey
-	}
-
-	rerankBaseURL := cfg.RAG.RerankBaseURL
-	if rerankBaseURL == "" {
-		rerankBaseURL = cfg.RAG.EmbeddingBaseURL
-	}
-
-	// 如果配置了 rerank API Key，使用真实的 rerank 客户端
-	if rerankAPIKey != "" && cfg.RAG.RerankModel != "" {
-		rerankClient = rerank.NewDashScopeClient(rerankAPIKey, rerankBaseURL, cfg.RAG.RerankModel)
-		slog.Info("rerank enabled", "model", cfg.RAG.RerankModel)
-	} else {
-		// 否则使用 noop 客户端（不进行重排序）
-		rerankClient = rerank.NewNoopClient()
-		slog.Info("rerank disabled, using noop client")
-	}
-
-	ragStore = rag.NewRerankStore(ragStore, rerankClient, cfg.RAG.TopN)
-
-	kb := tools.NewKnowledgeBaseWithRedis(cache, ragStore)
 	cleanup := func() {
-		milvusCleanup()
 		_ = cache.Close(context.Background())
 	}
 	return kb, runtimeStores{cache: cache, milvus: milvusClient}, cleanup, nil
@@ -332,7 +284,7 @@ func newLLMClient(cfg config.Config) agent.LLMClient {
 		if timeout <= 0 {
 			timeout = 30 * time.Second
 		}
-		return agent.NewOpenAICompatibleLLMClient(agent.OpenAICompatibleLLMConfig{
+		return llm.NewOpenAICompatibleLLMClient(llm.OpenAICompatibleLLMConfig{
 			APIKey:       cfg.LLM.APIKey,
 			BaseURL:      cfg.LLM.BaseURL,
 			Model:        cfg.LLM.Model,
@@ -348,11 +300,11 @@ func newLLMClient(cfg config.Config) agent.LLMClient {
 
 	// 降级到基于规则的 LLM 客户端
 	slog.Info("llm provider missing usable config, fallback to rule-based llm client", "provider", provider)
-	return agent.NewRuleBasedLLMClient()
+	return llm.NewRuleBasedLLMClient()
 }
 
-// toAgentToolCatalog 将 tools.ToolDefinition 转为 agent.ToolDefinition。
-func toAgentToolCatalog(defs []tools.ToolDefinition) []agent.ToolDefinition {
+// toAgentToolCatalog 将 tool.ToolDefinition 转为 agent.ToolDefinition。
+func toAgentToolCatalog(defs []tool.ToolDefinition) []agent.ToolDefinition {
 	out := make([]agent.ToolDefinition, 0, len(defs))
 	for _, d := range defs {
 		out = append(out, agent.ToolDefinition{

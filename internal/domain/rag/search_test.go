@@ -1,0 +1,119 @@
+package rag
+
+import (
+	"context"
+	"testing"
+
+	"wanzhi/internal/domain/model"
+)
+
+func TestBuildChunks(t *testing.T) {
+	endpoints := []model.Endpoint{
+		{
+			Service: "petstore",
+			Method:  "GET",
+			Path:    "/user/login",
+			Summary: "user login",
+			Parameters: []model.Parameter{
+				{Name: "username", Type: "string", Required: true},
+			},
+			Responses: []model.Response{{StatusCode: "200", Description: "ok"}},
+		},
+	}
+
+	chunks := BuildChunks(endpoints, "v1")
+	if len(chunks) != 4 {
+		t.Fatalf("expected 4 chunks, got %d", len(chunks))
+	}
+
+	types := map[string]bool{}
+	for _, c := range chunks {
+		types[c.Type] = true
+	}
+	for _, want := range []string{"overview", "request", "response", "dependency"} {
+		if !types[want] {
+			t.Fatalf("missing chunk type %q", want)
+		}
+	}
+}
+
+func TestBuildChunksOverviewIncludesEndpointName(t *testing.T) {
+	endpoints := []model.Endpoint{{
+		Service: "petstore",
+		Method:  "GET",
+		Path:    "/user/login",
+		Summary: "Logs user into the system",
+	}}
+
+	chunks := BuildChunks(endpoints, "v1")
+	for _, chunk := range chunks {
+		if chunk.Type != "overview" {
+			continue
+		}
+		if chunk.Content != "GET /user/login - Logs user into the system" {
+			t.Fatalf("expected overview include endpoint name, got %q", chunk.Content)
+		}
+		return
+	}
+
+	t.Fatalf("expected overview chunk")
+}
+
+func TestBuildChunksDependencyUsesPlaceholder(t *testing.T) {
+	endpoints := []model.Endpoint{{
+		Service: "petstore",
+		Method:  "GET",
+		Path:    "/user/login",
+		Summary: "user login",
+	}}
+
+	chunks := BuildChunks(endpoints, "v1")
+	for _, chunk := range chunks {
+		if chunk.Type != "dependency" {
+			continue
+		}
+		if chunk.Content != "接口依赖信息暂不可用" {
+			t.Fatalf("expected dependency placeholder, got %q", chunk.Content)
+		}
+		return
+	}
+
+	t.Fatalf("expected dependency chunk")
+}
+
+func TestSearchRanking(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	chunks := []model.Chunk{
+		{ID: "1", Service: "petstore", Endpoint: "GET /user/login", Type: "overview", Content: "login user account"},
+		{ID: "2", Service: "petstore", Endpoint: "POST /pet", Type: "overview", Content: "add pet"},
+		{ID: "3", Service: "petstore", Endpoint: "POST /store/order", Type: "overview", Content: "place order"},
+	}
+	vectors := make([][]float32, len(chunks))
+	for i := range chunks {
+		vectors[i] = []float32{0.1, 0.2}
+	}
+	if err := store.Upsert(ctx, chunks, vectors); err != nil {
+		t.Fatalf("upsert failed: %v", err)
+	}
+
+	results, err := store.Search(ctx, "login", 2, map[string]string{"service": "petstore"})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected at least 1 result")
+	}
+	if results[0].Chunk.Endpoint != "GET /user/login" {
+		t.Fatalf("expected login endpoint first, got %s", results[0].Chunk.Endpoint)
+	}
+
+	filtered, err := store.Search(ctx, "order", 5, map[string]string{"service": "unknown"})
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if len(filtered) != 0 {
+		t.Fatalf("expected empty results for unknown service, got %d", len(filtered))
+	}
+}

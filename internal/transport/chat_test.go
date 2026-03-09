@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"wanzhi/internal/agent"
+	"wanzhi/internal/domain/agent"
 )
 
 type mockStreamRunner struct {

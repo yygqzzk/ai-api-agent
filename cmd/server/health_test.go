@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"wanzhi/internal/agent"
+	"wanzhi/internal/domain/agent"
 	"wanzhi/internal/config"
-	"wanzhi/internal/store"
+	milvus "wanzhi/internal/infra/milvus"
 )
 
 func TestHealthzAllHealthy(t *testing.T) {
@@ -122,15 +122,15 @@ type fakeMilvusClient struct {
 	queryErr error
 }
 
-func (f *fakeMilvusClient) Upsert(_ context.Context, _ string, _ []store.VectorDoc) error { return nil }
-func (f *fakeMilvusClient) Search(_ context.Context, _ string, _ []float32, _ int, _ map[string]string) ([]store.SearchResult, error) {
+func (f *fakeMilvusClient) Upsert(_ context.Context, _ string, _ []milvus.VectorDoc) error { return nil }
+func (f *fakeMilvusClient) Search(_ context.Context, _ string, _ []float32, _ int, _ map[string]string) ([]milvus.SearchResult, error) {
 	return nil, nil
 }
-func (f *fakeMilvusClient) Query(_ context.Context, _ string) ([]store.VectorDoc, error) {
+func (f *fakeMilvusClient) Query(_ context.Context, _ string) ([]milvus.VectorDoc, error) {
 	if f.queryErr != nil {
 		return nil, f.queryErr
 	}
-	return []store.VectorDoc{}, nil
+	return []milvus.VectorDoc{}, nil
 }
 func (f *fakeMilvusClient) DeleteByService(_ context.Context, _ string, _ string) error { return nil }
 func (f *fakeMilvusClient) DeleteByIDs(_ context.Context, _ string, _ []string) error   { return nil }

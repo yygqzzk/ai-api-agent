@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"wanzhi/internal/agent"
+	"wanzhi/internal/domain/agent"
 )
 
 // StreamRunner 为 Chat 提供流式事件输出
